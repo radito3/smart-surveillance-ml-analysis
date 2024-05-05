@@ -7,3 +7,7 @@ ML Analysis pipeline for the Smart Surveillance System
  * Scikit-learn
  * Ultralytics
  * OpenCV
+
+## TODO
+ - keep the ID of the object (person) that is perceived as suspicious
+throughout the ML pipeline and add a red bounding box in the dashboard video feed if so
