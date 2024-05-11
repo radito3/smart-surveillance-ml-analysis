@@ -4,6 +4,19 @@ from ultralytics import YOLO
 
 # from ultralytics.utils.checks import check_imshow
 from ultralytics.utils.plotting import Annotator, colors
+# even though this is a super-lightweight library, it is from an author of the MMPose project
+from rtmlib import draw_skeleton, RTMPose, RTMO
+
+# this is a whole body keypoints (133) estimator
+# it includes body, face, hands
+# it bugs out when people aren't front facing to the camera and when there are other people/objects in front
+# pose_model = RTMPose("https://download.openmmlab.com/mmpose/v1/projects/rtmw/onnx_sdk/rtmw-dw-x-l_simcc-cocktail14_270e-384x288_20231122.zip")
+
+# https://github.com/open-mmlab/mmpose/tree/main/projects/rtmo
+# TODO: maybe detect face and hand features separately?
+# https://docs.ultralytics.com/tasks/pose
+# TODO: write a comparison between YOLO-pose (two-stage top-down detector) and RTMO (one-stage detector)
+rtmo_model = RTMO("https://download.openmmlab.com/mmpose/v1/projects/rtmo/onnx_sdk/rtmo-m_16xb16-600e_body7-640x640-39e78cc4_20231211.zip")
 
 # from collections import defaultdict
 
@@ -37,20 +50,28 @@ while cap.isOpened() and frame_count <= end_frame:
     success, frame = cap.read()
     if success:
         results = model.track(frame, persist=True, verbose=False, classes=[0], conf=0.5)
+        # TODO: cut out the part of the frame withing the bounding boxes to lessen the overhead of feature extraction
+        # find a way to parallelize multi-person detection - might not be needed with RTMO
         boxes = results[0].boxes.xyxy.cpu()
         # print(boxes)
 
         if results[0].boxes.id is not None:
-            # Extract prediction results
-            clss = results[0].boxes.cls.cpu().tolist()
-            track_ids = results[0].boxes.id.int().cpu().tolist()
-            # confs = results[0].boxes.conf.float().cpu().tolist()
+            # top-level dimension - person N
+            # 2nd level - keypoints, scores
+            keypoints, scores = rtmo_model(frame)
+            # keypoints, scores = pose_model(frame, boxes)
+            frame = draw_skeleton(frame, keypoints, scores, kpt_thr=0.5)
 
-            # Annotator Init
-            annotator = Annotator(frame, line_width=2)
-
-            for box, cls, track_id in zip(boxes, clss, track_ids):
-                annotator.box_label(box, color=colors(int(cls), True), label=f"{names[int(cls)]} {track_id}")
+            # # Extract prediction results
+            # clss = results[0].boxes.cls.cpu().tolist()
+            # track_ids = results[0].boxes.id.int().cpu().tolist()
+            # # confs = results[0].boxes.conf.float().cpu().tolist()
+            #
+            # # Annotator Init
+            # annotator = Annotator(frame, line_width=2)
+            #
+            # for box, cls, track_id in zip(boxes, clss, track_ids):
+            #     annotator.box_label(box, color=colors(int(cls), True), label=f"{names[int(cls)]} {track_id}")
 
                 # Store tracking history
                 # track = track_history[track_id]
