@@ -1,0 +1,7 @@
+keras==3.3.3
+numpy==1.26.4
+opencv-python==4.9.0.80
+rtmlib==0.0.11
+scikit-image
+tensorflow==2.16.1
+ultralytics==8.2.8
