@@ -41,6 +41,9 @@ result = cv2.VideoWriter("object_tracking.avi",
                          fps,
                          (w, h))
 
+# Load the pre-trained Haar Cascade classifier for face detection
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
 
 def temporal_difference(frame1, frame2):
     # Convert frames to grayscale
@@ -124,6 +127,18 @@ while cap.isOpened() and frame_count <= end_frame:
         clss = results[0].boxes.cls.cpu().tolist()
         track_ids = results[0].boxes.id.int().cpu().tolist()
         # confs = results[0].boxes.conf.float().cpu().tolist()
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # gray = cv2.equalizeHist(gray)  # Histogram equalization
+        # gray = cv2.GaussianBlur(gray, (5, 5), 0)  # Gaussian blur
+
+        # Detect faces in the frame
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5, minSize=(24, 24))
+
+        # Draw rectangles around the detected faces
+        for (x, y, w, h) in faces:
+            if 0.8 < w / h < 1.2:  # Example aspect ratio filter
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
 
         # Annotator Init
         annotator = Annotator(frame, line_width=2)
