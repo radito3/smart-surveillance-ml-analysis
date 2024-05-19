@@ -5,3 +5,4 @@ rtmlib==0.0.11
 scikit-image
 tensorflow==2.16.1
 ultralytics==8.2.8
+mtcnn
