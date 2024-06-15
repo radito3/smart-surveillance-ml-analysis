@@ -11,6 +11,7 @@ from keras.models import Sequential
 from keras.layers import Dense
 from tensorflow.python.keras.layers.recurrent import LSTM
 from skimage.feature import hog as histogram_of_oriented_gradients
+# import tensorflow.keras.applications.DenseNet201
 # from collections import defaultdict
 import anonymization.face_anon_filter as anon
 
@@ -23,6 +24,10 @@ body_pose_detector = RTMO(os.environ["RTMO_MODEL_URL"])
 
 # TODO: to use an OpenCV MediaMTX producer with GStreamer, I need to build OpenCV from source...
 # print(cv2.getBuildInformation())
+
+# RTSP_URL = 'rtsp://user:pass@192.168.0.189:554/h264Preview_01_main'
+# os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;udp'
+# cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
 
 video_path = "output.mov"
 cap = cv2.VideoCapture(video_path)
@@ -130,7 +135,6 @@ while cap.isOpened() and frame_count <= end_frame:
 
         frame = anonymizer(frame, 'pixelate')
 
-        # Annotator Init
         annotator = Annotator(frame, line_width=2)
 
         for box, cls, track_id in zip(boxes, clss, track_ids):

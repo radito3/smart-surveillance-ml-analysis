@@ -26,3 +26,6 @@ throughout the ML pipeline and add a red bounding box in the dashboard video fee
  - write about the [RTMO](https://arxiv.org/html/2312.07526v1) model; [additional info](https://github.com/open-mmlab/mmpose/tree/main/projects/rtmo)
  - write a comparison between [YOLO-pose](https://docs.ultralytics.com/tasks/pose) (two-stage top-down detector) and RTMO (one-stage detector)
  - write about ONNX Runtime
+ - write about [LSTM vs Transformers](https://deep-learning-mit.github.io/staging/blog/2023/time-series-lstm-transformer/)
+ - write about Visual Transformers
+ - write about two-stream convolutional networks
