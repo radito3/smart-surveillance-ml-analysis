@@ -23,6 +23,8 @@ transform = transforms.Compose([
 
 # Function to extract frames from the video
 def extract_frames(video_path, num_frames=16):
+    # helpful: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4029702/
+
     cap = cv2.VideoCapture(video_path)
     frames = []
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))

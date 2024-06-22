@@ -6,10 +6,6 @@ from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 # even though this is a super minimal and lightweight library, it is from an author of the MMPose project
 from rtmlib import draw_skeleton, RTMO
-import tensorflow as tf
-from keras.models import Sequential
-from keras.layers import Dense
-from tensorflow.python.keras.layers.recurrent import LSTM
 from skimage.feature import hog as histogram_of_oriented_gradients
 # import tensorflow.keras.applications.DenseNet201
 # from collections import defaultdict

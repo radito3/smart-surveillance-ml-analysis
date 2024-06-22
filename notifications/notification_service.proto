@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package TextNotification;
+
+// The request message containing the user's ID and content of the notification.
+message NotificationRequest {
+  int64 receiver_id = 1;
+  string content = 2;
+}
+
+// The message containing the ID of the notification.
+message NotificationId {
+  int64 id = 1;
+}
+
+// The response message containing the status of the notification.
+message NotificationResponse {
+  int64 id = 1;
+  bool status = 2; // e.g., success = true, else = false
+}
+
+// Notification message should have the entity id, content, and creation timestamp.
+message Notification {
+  int64 id = 1;
+  int64 receiver_id = 2;
+  string content = 3;
+  string timestamp = 4;
+}
+
+service TextNotificationService {
+  // Sends a notification to a user and returns whether it was successful.
+  rpc SendNotification(NotificationRequest) returns (NotificationResponse);
+
+  // Receives a notification given the id and returns it.
+  rpc ReceiveNotification(NotificationId) returns (Notification);
+}
