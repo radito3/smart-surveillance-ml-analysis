@@ -1,6 +1,9 @@
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
 
+# read vector from FIFO, pass through LSTM NN if needed and send notification if sus behaviour detected
+
+
 # Assuming each of our input sequences has a dimensionality of 'n_features'
 n_features = 10
 n_classes = 3

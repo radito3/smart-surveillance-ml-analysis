@@ -19,7 +19,7 @@ ML Analysis pipeline for the Smart Surveillance System
 ## changes from the original idea
  - switch OpenPose to RTMO/YOLO-pose because OpenPose is really old, outdated and unsupported
  - instead of manual feature selection and extraction (which also adds significant time and computational 
- overhead), maybe a ConvLSTM architecture can automatically learning feature representations and save the first and
+ overhead), maybe a ConvLSTM architecture can automatically learn feature representations and save the first and
  second stage of the pipeline (although context clues are still crucially important) [article 1](https://www.mdpi.com/1424-8220/16/1/115),
  [article 2](https://www.mdpi.com/1424-8220/17/11/2556)
 
@@ -35,6 +35,7 @@ throughout the ML pipeline and add a red bounding box in the dashboard video fee
  - write about two-stream convolutional networks
  - write about nvidia containers and container runtime plugin, k8s node plugin
  - might write about improvements in [YOLOv9](https://learnopencv.com/yolov9-advancing-the-yolo-legacy/)
+ - https://gist.github.com/dariodip/4e0133eaa8733e4206ccdb48e7af6a90
 
 ## Miscellaneous 
  - Objects interaction https://arxiv.org/pdf/1612.00222

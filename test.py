@@ -18,9 +18,6 @@ names = model.model.names
 # TODO: maybe detect face and hand features separately?
 body_pose_detector = RTMO(os.environ["RTMO_MODEL_URL"])
 
-# TODO: to use an OpenCV MediaMTX producer with GStreamer, I need to build OpenCV from source...
-# print(cv2.getBuildInformation())
-
 # RTSP_URL = 'rtsp://user:pass@192.168.0.189:554/h264Preview_01_main'
 # os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;udp'
 # cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)

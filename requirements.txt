@@ -1,8 +1,10 @@
 keras==3.3.3
+# h5py==3.11.0 -- this doesn't exist for aarch64 .....
 numpy==1.26.4
 opencv-python==4.9.0.80
 rtmlib==0.0.11
 scikit-image
 tensorflow==2.16.1
 ultralytics==8.2.8
+Cython==3.0.10
 mtcnn
