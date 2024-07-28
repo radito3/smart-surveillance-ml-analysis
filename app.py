@@ -21,6 +21,11 @@ def sleeper_process(conn: cn.Connection, selector: selectors.BaseSelector, stop_
                 return
         conn.send(True)
 
+# events = sel.select()
+# for key, _ in events:
+#     key.fileobj  # generic object
+#     # cast(cn.Connection, selectorKey.fileobj)
+
 
 # stdin arg: media mtx camera source URL
 RTSP_URL = 'rtsp://user:pass@192.168.0.189:554/h264Preview_01_main'
@@ -51,12 +56,18 @@ decider = mp.Process()
 decider.start()
 
 
+read_attempts: int = 3
+frame_buffer: list[cv2.typing.MatLike] = []  # where should this buffer be?
+
 while video_source.isOpened():
-    # where should the reading of the frames be in this loop?
-    events = sel.select()
-    for key, _ in events:
-        key.fileobj  # generic object
-        # cast(cn.Connection, selectorKey)
+    ok, frame = video_source.read()  # network I/O
+    if not ok and read_attempts > 0:
+        read_attempts -= 1
+        continue
+    if not ok and read_attempts == 0:
+        break
+
+    frame_sender.send(frame)
 
 stop_signal_sender.send(True)
 
