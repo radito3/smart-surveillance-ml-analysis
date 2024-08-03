@@ -66,6 +66,7 @@ while video_source.isOpened():
         continue
     if not ok and read_attempts == 0:
         break
+    read_attempts = 3
 
     frame_sender.send(frame)
 
