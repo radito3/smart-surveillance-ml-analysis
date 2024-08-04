@@ -1,4 +1,5 @@
 import torch
+from datetime import timedelta
 import torchvision.transforms as transforms
 import cv2
 # import numpy as np
@@ -30,8 +31,8 @@ from analysis.video_buffer_analyzer import VideoBufferAnalyzer
 
 class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
 
-    def __init__(self, window_size: int, fps: int):
-        self.num_frames = window_size * fps
+    def __init__(self, fps: int, window_size: timedelta):
+        super().__init__(fps, window_size)
         self.model = r3d_18(pretrained=True)
         self.model.eval()  # Set the model to evaluation mode
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -57,9 +58,6 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
 
         predicted_activity = self.kinetics_classes[predicted_class.item()]
         return [0, 0, predicted_activity, 0, 0]  # TODO: one-hot encode supported activities
-
-    def get_num_frames(self) -> int:
-        return self.num_frames
 
     def __preprocess_frames(self, frames: list[cv2.typing.MatLike]) -> torch.Tensor:
         # TODO: Convert frames from BGR to RGB
