@@ -1,9 +1,13 @@
 import cv2
 import numpy as np
 from analysis.double_frame_analyzer import DoubleFrameAnalyzer
+from analysis.types import AnalysisType
 
 
 class OpticalFlowAnalyzer(DoubleFrameAnalyzer):
+
+    def analysis_type(self) -> AnalysisType:
+        return AnalysisType.OpticalFlow
 
     def analyze_with_previous_frame(self, frame1: cv2.typing.MatLike, frame2: cv2.typing.MatLike) -> list[int]:
         prev = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)

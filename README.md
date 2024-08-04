@@ -12,7 +12,7 @@ ML Analysis pipeline for the Smart Surveillance System
  * [Onnxruntime](https://onnxruntime.ai/)
 
 ## Environment
- * YOLO_MODEL=yolov8m.pt
+ * YOLO_MODEL=yolov10m.pt
  * RTMO_MODEL_URL=[RTMO-M](https://download.openmmlab.com/mmpose/v1/projects/rtmo/onnx_sdk/rtmo-m_16xb16-600e_body7-640x640-39e78cc4_20231211.zip)
  * KERAS_BACKEND=tensorflow
 

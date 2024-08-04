@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
+from analysis.types import AnalysisType
 
 
 class BaseAnalyzer(ABC):
 
     @abstractmethod
-    def get_num_frames(self) -> int:
+    def analysis_type(self) -> AnalysisType:
         pass
 
     @abstractmethod

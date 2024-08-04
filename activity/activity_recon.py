@@ -5,6 +5,7 @@ import cv2
 # import numpy as np
 from torchvision.models.video import r3d_18
 
+from analysis.types import AnalysisType
 from analysis.video_buffer_analyzer import VideoBufferAnalyzer
 
 
@@ -47,8 +48,11 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
         # Load the class labels
         self.kinetics_classes = [line.strip() for line in open("path_to_kinetics_class_labels.txt")]
 
-    def analyze(self, video_window: list[cv2.typing.MatLike], *args, **kwargs) -> list[int]:
-        preprocessed_frames = self.__preprocess_frames(video_window)
+    def analysis_type(self) -> AnalysisType:
+        return AnalysisType.ActivityDetection
+
+    def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> list[int]:
+        preprocessed_frames = self.__preprocess_frames(window)
         preprocessed_frames = preprocessed_frames.to(self.device)
         # Make predictions
         with torch.no_grad():
