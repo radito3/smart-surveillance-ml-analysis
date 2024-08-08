@@ -9,8 +9,8 @@ class BaseAnalyzer(ABC):
         pass
 
     @abstractmethod
-    def analyze(self, payload: any, *args, **kwargs) -> list[int]:
+    def analyze(self, payload: any, *args, **kwargs) -> list[any]:
         raise AssertionError("abstract class method called")
 
-    def __call__(self, payload: any, *args, **kwargs) -> list[int]:
+    def __call__(self, payload: any, *args, **kwargs) -> list[any]:
         return self.analyze(payload, *args, **kwargs)

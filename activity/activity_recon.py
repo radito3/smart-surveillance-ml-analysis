@@ -2,6 +2,7 @@ import torch
 from datetime import timedelta
 import torchvision.transforms as transforms
 import cv2
+import csv
 # import numpy as np
 from torchvision.models.video import r3d_18
 
@@ -44,14 +45,15 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.43216, 0.394666, 0.37645], std=[0.22803, 0.22145, 0.216989])
         ])
-        # TODO: ensure file is closed after reading
         # Load the class labels
-        self.kinetics_classes = [line.strip() for line in open("path_to_kinetics_class_labels.txt")]
+        with open('../kinetics_400_labels.csv', 'r', newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            self.kinetics_classes = [name for _, name in reader]
 
     def analysis_type(self) -> AnalysisType:
         return AnalysisType.ActivityDetection
 
-    def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> list[int]:
+    def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> list[any]:
         preprocessed_frames = self.__preprocess_frames(window)
         preprocessed_frames = preprocessed_frames.to(self.device)
         # Make predictions
@@ -66,6 +68,6 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
     def __preprocess_frames(self, frames: list[cv2.typing.MatLike]) -> torch.Tensor:
         # TODO: Convert frames from BGR to RGB
         # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        preprocessed_frames = [self.transform(frame) for frame in frames]
+        preprocessed_frames = [self.transform(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)) for frame in frames]
         preprocessed_frames = torch.stack(preprocessed_frames).unsqueeze(0)  # Add batch dimension
         return preprocessed_frames

@@ -11,7 +11,7 @@ class VideoBufferAnalyzer(BaseAnalyzer):
         self._num_frames: int = int(fps * window_size.total_seconds())
         self._buffer: list[cv2.typing.MatLike] = []
 
-    def analyze(self, frame: cv2.typing.MatLike, *args, **kwargs) -> list[int]:
+    def analyze(self, frame: cv2.typing.MatLike, *args, **kwargs) -> list[any]:
         if len(self._buffer) < self._num_frames:
             self._buffer.append(frame)
             return []
@@ -20,5 +20,5 @@ class VideoBufferAnalyzer(BaseAnalyzer):
         return result
 
     @abstractmethod
-    def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> list[int]:
+    def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> list[any]:
         pass

@@ -6,5 +6,5 @@ from .analyzer import BaseAnalyzer
 class SingleFrameAnalyzer(BaseAnalyzer):
 
     @abstractmethod
-    def analyze(self, frame: cv2.typing.MatLike, *args, **kwargs) -> list[int]:
+    def analyze(self, frame: cv2.typing.MatLike, *args, **kwargs) -> list[any]:
         pass
