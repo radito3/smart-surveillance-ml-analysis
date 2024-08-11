@@ -2,32 +2,44 @@ import cv2
 import multiprocessing as mp
 import multiprocessing.connection as cn
 import os
+from typing import Any
 from datetime import timedelta
 
 from activity.activity_recon import ActivityRecognitionAnalyzer
 from analysis.analyzer import BaseAnalyzer
-from analysis_process import analyzer_wrapper
+from analysis.classifier import Classifier
+from analysis.types import AnalysisType
+from behavior.graph_lstm import GraphBasedLSTMClassifier
 from human_object_interaction.interaction import HumanObjectInteractionAnalyzer
 from object_detection.detector import ObjectDetector
 from optical_flow.optical_flow import OpticalFlowAnalyzer
 from pose_detection.pose_detector import PoseDetector
 from temporal_difference.temporal_difference import TemporalDifferenceAnalyzer
+from util.connection_iterator import ConnIterator
 
 
-def sink(sink_conn: cn.Connection) -> None:
-    while True:
-        obj = sink_conn.recv()
-        if obj is None:
-            return
+def analyzer_wrapper(analyzer: BaseAnalyzer, frame_src: cn.Connection, sink: cn.Connection, sink_lock: mp.Lock):
+    for frame in ConnIterator[cv2.typing.MatLike](frame_src):
+        vector: list[any] = analyzer.analyze(frame)
 
-        if len(obj['data']) != 0:
-            print(obj)
+        sink_lock.acquire()
+        try:
+            sink.send((analyzer.analysis_type(), vector))
+        finally:
+            sink_lock.release()
+
+
+def sink(classifier: Classifier, sink_conn: cn.Connection) -> None:
+    for dtype, data in ConnIterator[tuple[AnalysisType, Any]](sink_conn):
+        if classifier.classify_as_suspicious(data):
+            # TODO: send notification
+            print("suspicious behaviour detected")
 
 
 if __name__ == '__main__':
     os.environ["KERAS_BACKEND"] = "tensorflow"
     # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
-    os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;tcp'
+    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
     RTSP_URL = "rtsp://user:pass@192.168.0.189:554/h264Preview_01_main"  # stdin arg
     video_source = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
     assert video_source.isOpened(), "Error opening video stream"
@@ -50,8 +62,11 @@ if __name__ == '__main__':
                                    for analyzer, (src, _) in zip(analyzers, pipes)]
     [process.start() for process in processes]
 
-    classifier = mp.Process(target=sink, args=(sink_receiver,))
-    classifier.start()
+    # TODO: decide which classifier to use
+    classifier: Classifier = GraphBasedLSTMClassifier(6, 32)
+
+    classifier_process = mp.Process(target=sink, args=(classifier, sink_receiver,))
+    classifier_process.start()
 
     read_attempts: int = 3
 
@@ -76,5 +91,4 @@ if __name__ == '__main__':
     [dest.send(None) for _, dest in pipes]  # send sentinel value
     [process.join() for process in processes]
     sink_sender.send(None)
-
-    classifier.join()
+    classifier_process.join()

@@ -26,6 +26,9 @@ class PoseDetector(SingleFrameAnalyzer):
         # top-level dimension (keypoints/scores[N]) - person N
         # 2nd level (keypoints/scores[N][i]) - keypoints [x, y], scores <float from 0 to 1>
         keypoints, scores = self.model(frame)
+        # for debugging:
+        # frame = draw_skeleton(frame, keypoints, scores, kpt_thr=0.5)
+
         # filter out low-confidence key points
         result = [
             # kpt is a float32 array/tensor? of two elements: x, y coordinates

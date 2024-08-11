@@ -1,6 +1,8 @@
+import os
 import cv2.typing
 import ultralytics.engine.results
 from ultralytics.engine.model import Model
+from ultralytics.utils.plotting import Annotator, colors
 from ultralytics import YOLO
 
 from analysis.single_frame_analyzer import SingleFrameAnalyzer
@@ -28,12 +30,22 @@ class ObjectDetector(SingleFrameAnalyzer):
     def detect(self, frame: cv2.typing.MatLike, people_only: bool = False) -> ultralytics.engine.results.Results:
         if self.model is None:
             # lazy initialization, due to serialization issues
-            self.model = YOLO("yolov10m.pt")
+            self.model = YOLO(os.environ["YOLO_MODEL"])
 
         if people_only:
             classes = [0]  # class 0 is 'person'
         else:
             classes = None
+
+        # for debugging visually:
+        # boxes = results[i].boxes.xyxy.cpu()
+        # clss = results[i].boxes.cls.cpu().tolist()
+        # track_ids = results[i].boxes.id.int().cpu().tolist()
+        #
+        # annotator = Annotator(frame, line_width=2)
+        #
+        # for box, cls, track_id in zip(boxes, clss, track_ids):
+        #     annotator.box_label(box, color=colors(int(cls), True), label=f"{names[int(cls)]} {track_id}")
         return self.model.predict(frame,
                                   verbose=False,
                                   classes=classes,

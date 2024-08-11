@@ -2,12 +2,14 @@
 ML Analysis pipeline for the Smart Surveillance System
 
 ## Dependencies
- * Python 3
+ * Python 3.9+
  * NumPy
  * Scikit-learn
  * Ultralytics
  * OpenCV
  * Keras
+ * PyTorch
+ * PyTorch Geometric
  * [rtmlib](https://github.com/Tau-J/rtmlib)
  * [Onnxruntime](https://onnxruntime.ai/)
 
@@ -24,6 +26,8 @@ ML Analysis pipeline for the Smart Surveillance System
  [article 2](https://www.mdpi.com/1424-8220/17/11/2556)
 
 ## TODO
+ - ensure all models are on the GPU if possible
+ - consider compiling the models with tf.compile()
  - keep the ID of the object (person) that is perceived as suspicious
 throughout the ML pipeline and add a red bounding box in the dashboard video feed if so OR just display a warning in the camera scene
  - [variable input size for neural network](https://stats.stackexchange.com/a/138760)
@@ -35,7 +39,7 @@ throughout the ML pipeline and add a red bounding box in the dashboard video fee
  - write about [Visual Transformers (ViT)](https://arxiv.org/pdf/2102.05095)
  - write about two-stream convolutional networks
  - write about nvidia containers and container runtime plugin, k8s node plugin
- - might write about improvements in [YOLOv9](https://learnopencv.com/yolov9-advancing-the-yolo-legacy/)
+ - might write about improvements in [YOLOv9](https://learnopencv.com/yolov9-advancing-the-yolo-legacy/) and YOLOv10
  - https://gist.github.com/dariodip/4e0133eaa8733e4206ccdb48e7af6a90
 
 ## Miscellaneous 
@@ -49,3 +53,27 @@ throughout the ML pipeline and add a red bounding box in the dashboard video fee
  - probably not useful, but still might be valuable: [xLSTM](https://arxiv.org/html/2406.04303v1)
  - probably not useful, as it is mainly used for predictions: [ConvLSTM](https://medium.com/neuronio/an-introduction-to-convlstm-55c9025563a7)
  - [useless?](https://arxiv.org/pdf/1711.09577v2)
+ - Writing a video to disk: `cv2.VideoWriter("output.avi", cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))`
+
+### Potential Benefits of SAGPooling:
+- **Focus on Relevant Substructures**: SAGPooling dynamically selects a subset of important nodes based on their
+ features and the graph structure. This can potentially allow the network to focus more on regions within the frame
+ (graph) that are more relevant for detecting suspicious behavior.
+- **Reduction of Complexity**: By reducing the number of nodes, SAGPooling can decrease the computational burden,
+ which might be beneficial when processing a large number of frames (graphs), as typically encountered in video data.
+- **Enhanced Learning Dynamics**: Through its attention mechanism, SAGPooling may help in learning more
+ discriminative features, which could be highly descriptive and beneficial for downstream temporal modeling with LSTMs.
+
+### Implementing SAGPooling While Retaining Fixed-Sized Output:
+To utilize SAGPooling while still having a fixed-sized output for LSTM suitability, you can enforce a structured
+scenario wherein after SAGPooling - which typically reduces graph size - you apply a global pooling operation that
+condenses the information from the pooled graph into a fixed-sized vector. This way, you merge enhanced features from
+important nodes into a consistent representation suitable for sequence processing.
+
+### Considerations:
+- **Temporal Discontinuity**: Care must be taken to ensure that the SAGPooling operation doesn’t introduce
+  discontinuities in the temporal dimension. The selection of nodes should ideally be stable across frames to
+  preserve temporal coherence. This is sometimes challenging with dynamic pooling mechanisms, and may require careful
+  tuning, or supplementing with position or frame-reference features.
+- **Tuning Pooling Ratios**: The pooling ratio and other hyperparameters (like attention specifics in SAGPooling)
+  need to be tuned based on the specific characteristics of your data and what constitutes “suspicious behavior”.

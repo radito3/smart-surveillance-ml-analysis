@@ -3,32 +3,10 @@ from datetime import timedelta
 import torchvision.transforms as transforms
 import cv2
 import csv
-# import numpy as np
 from torchvision.models.video import r3d_18
 
 from analysis.types import AnalysisType
 from analysis.video_buffer_analyzer import VideoBufferAnalyzer
-
-
-# Function to extract frames from the video
-# def extract_frames(video_path, num_frames=16):
-#     # helpful: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4029702/
-#
-#     cap = cv2.VideoCapture(video_path)
-#     frames = []
-#     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-#     frame_indices = np.linspace(0, total_frames-1, num_frames, dtype=int)
-#
-#     for i in range(total_frames):
-#         ret, frame = cap.read()
-#         if i in frame_indices:
-#             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
-#             frames.append(frame)
-#         if len(frames) == num_frames:
-#             break
-#
-#     cap.release()
-#     return frames
 
 
 class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
@@ -66,8 +44,7 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
         return [0, 0, predicted_activity, 0, 0]  # TODO: one-hot encode supported activities
 
     def __preprocess_frames(self, frames: list[cv2.typing.MatLike]) -> torch.Tensor:
-        # TODO: Convert frames from BGR to RGB
-        # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # Convert frames from BGR to RGB
         preprocessed_frames = [self.transform(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)) for frame in frames]
         preprocessed_frames = torch.stack(preprocessed_frames).unsqueeze(0)  # Add batch dimension
         return preprocessed_frames
