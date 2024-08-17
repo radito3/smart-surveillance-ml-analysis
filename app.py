@@ -4,9 +4,11 @@ import multiprocessing.connection as cn
 import os
 from typing import Any
 from datetime import timedelta
+import numpy as np
 
 from analysis.activity.activity_recon import ActivityRecognitionAnalyzer
 from analysis.analyzer import BaseAnalyzer
+from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
 from classification.classifier import Classifier
 from analysis.types import AnalysisType
 from analysis.human_object_interaction.interaction import HumanObjectInteractionAnalyzer
@@ -37,6 +39,8 @@ def sink(classifier: Classifier, sink_conn: cn.Connection) -> None:
 
 
 if __name__ == '__main__':
+    print(np.random.randint(0, 255, (5, 4)))
+
     os.environ["KERAS_BACKEND"] = "tensorflow"
     # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
@@ -64,14 +68,15 @@ if __name__ == '__main__':
     [process.start() for process in processes]
 
     # TODO: decide which classifier to use
-    # classifier: Classifier = GraphBasedLSTMClassifier(6, 32)
-    classifier: Classifier = SimplePresenceClassifier()
+    classifier = GraphBasedLSTMClassifier(3, 16)
+    classifier.eval()
+    # classifier: Classifier = SimplePresenceClassifier()
 
     classifier_process = mp.Process(target=sink, args=(classifier, sink_receiver,))
     classifier_process.start()
 
     read_attempts: int = 3
-    total_frames = 30
+    total_frames = 1
     frames = 0
 
     # through some experiments, it takes a little over 5 seconds for YOLO to process 24 frames
