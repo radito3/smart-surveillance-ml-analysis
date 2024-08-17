@@ -1,13 +1,11 @@
 syntax = "proto3";
 
+import "google/protobuf/empty.proto";
+
 service NotificationDelegateService {
-  rpc SendNotification (HelloRequest) returns (HelloResponse) {}
+  rpc SendNotification (HelloRequest) returns (google.protobuf.Empty) {}
 }
 
 message HelloRequest {
   string name = 1;
-}
-
-message HelloResponse {
-  string message = 1;
 }

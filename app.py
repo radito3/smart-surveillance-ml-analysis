@@ -33,7 +33,7 @@ def analyzer_wrapper(analyzer: BaseAnalyzer, frame_src: cn.Connection, sink: cn.
 def sink(classifier: Classifier, sink_conn: cn.Connection) -> None:
     for dtype, data in ConnIterator[tuple[AnalysisType, Any]](sink_conn):
         if classifier.classify_as_suspicious(data):
-            send_notification(())
+            send_notification('localhost:50051')
 
 
 if __name__ == '__main__':
