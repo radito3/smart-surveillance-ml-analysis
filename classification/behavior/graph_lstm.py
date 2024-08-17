@@ -57,6 +57,7 @@ class GraphNetWithSAGPooling(torch.nn.Module):
         # TODO: is the global mean pooling necessary if we are passing the batch vector to the SAG pooling layer?
         x, edge_index, _, batch, _, _ = self.filter_pool(x, edge_index, None, batch)  # SAGPooling applied
         x = torch.relu(self.conv2(x, edge_index))
+        print(f"batch: {batch}")
         x = self.global_pool(x, batch)  # Global pool to enforce a fixed-sized output
         return x
 
@@ -73,7 +74,10 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
         self.output_layer = nn.Linear(hidden_dim, 1)  # Outputting a single probability
 
+        self.window_size = 36  # 1.5 seconds of frames (at 24 fps)
+        self.window_step = 10  # every 10 frames move to a new window
         self.prev_detections: list[torch.Tensor] = []
+        self.buffer = []
 
         self.to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
@@ -90,13 +94,27 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         return torch.sigmoid(predictions)
 
     def classify_as_suspicious(self, vector: list[any]) -> bool:
-        # TODO: accumulate frames with a sliding window and pass them in bulk
+        if len(self.buffer) < self.window_size:
+            self.buffer.append(vector)
+            return False
 
-        predictions: torch.Tensor = self.forward(vector)
+        graph_data_sequences = []
+        for yolo_results in self.buffer:
+            graph_data_sequences.append(self._create_graph(yolo_results))
+
+        self.buffer = self.buffer[self.window_step:]
+
+        predictions: torch.Tensor = self.forward(graph_data_sequences)
         print(predictions)
         # greater-than or equal
         result = torch.ge(predictions, 0.6).bool()
         return bool(result[0]) if len(result) > 0 else False
+
+    def _create_graph(self, yolo_results):
+        features, edges = self._extract_graph(yolo_results)
+        return Data(x=torch.tensor(features, dtype=torch.float),
+                    edge_index=torch.tensor(edges, dtype=torch.long).t().contiguous()
+                    )
 
     def _extract_graph(self, yolo_results):
         """
@@ -151,10 +169,3 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
         self.prev_detections = detections
         return features, edges
-
-    def _create_graph(self, yolo_results):
-        features, edges = self._extract_graph(yolo_results)
-        # prev_detections = detections  # update this when buffering
-        return Data(x=torch.tensor(features, dtype=torch.float),
-                    edge_index=torch.tensor(edges, dtype=torch.long).t().contiguous()
-                    )

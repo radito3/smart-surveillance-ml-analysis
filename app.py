@@ -76,7 +76,7 @@ if __name__ == '__main__':
     classifier_process.start()
 
     read_attempts: int = 3
-    total_frames = 1
+    total_frames = 48
     frames = 0
 
     # through some experiments, it takes a little over 5 seconds for YOLO to process 24 frames
