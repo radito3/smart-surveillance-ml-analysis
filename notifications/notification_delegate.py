@@ -21,6 +21,7 @@ def _send_notification_internal(address: str) -> None:
     # TODO: secure channel with a TLS certificate
     with grpc.insecure_channel(address) as channel:
         stub = notification_service_pb2_grpc.NotificationDelegateServiceStub(channel)
+        # TODO: the payload for the message should be the ID of the camera source sending this notification
         request = notification_service_pb2.HelloRequest(name='World')
         # TODO: replace with more robust logging
         print(f"Sending notification to: {address}")

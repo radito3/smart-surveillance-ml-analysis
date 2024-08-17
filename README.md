@@ -28,6 +28,7 @@ ML Analysis pipeline for the Smart Surveillance System
 ## TODO
  - ensure all models are on the GPU if possible
  - consider compiling the models with tf.compile()
+ - move anonymization and recorder packages out of this repo
  - keep the ID of the object (person) that is perceived as suspicious
 throughout the ML pipeline and add a red bounding box in the dashboard video feed if so OR just display a warning in the camera scene
  - [variable input size for neural network](https://stats.stackexchange.com/a/138760)

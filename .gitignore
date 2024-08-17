@@ -161,6 +161,10 @@ cython_debug/
 
 # YOLO pre-trained models
 *.pt
+
 *.avi
 *.mov
 *.jpg
+
+# gRPC generated files
+*_pb2*

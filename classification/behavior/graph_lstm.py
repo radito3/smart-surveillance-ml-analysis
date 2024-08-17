@@ -1,13 +1,10 @@
-import cv2
 import numpy as np
 import torch
 import torch.nn as nn
 from torch_geometric.nn import GCNConv, global_mean_pool, SAGPooling
-from torch_geometric.data import Data, Batch
-from torch_geometric.loader import DataLoader
-import torch.nn.functional as F
+from torch_geometric.data import Data
 
-from analysis.classifier import Classifier
+from classification.classifier import Classifier
 
 
 def extract_graph(frame, prev_detections):

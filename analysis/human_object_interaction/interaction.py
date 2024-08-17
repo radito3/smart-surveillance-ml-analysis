@@ -2,7 +2,7 @@ import cv2
 
 from analysis.single_frame_analyzer import SingleFrameAnalyzer
 from analysis.types import AnalysisType
-from object_detection.detector import ObjectDetector
+from analysis.object_detection.detector import ObjectDetector
 
 
 class HumanObjectInteractionAnalyzer(SingleFrameAnalyzer):

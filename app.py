@@ -5,17 +5,17 @@ import os
 from typing import Any
 from datetime import timedelta
 
-from activity.activity_recon import ActivityRecognitionAnalyzer
+from analysis.activity.activity_recon import ActivityRecognitionAnalyzer
 from analysis.analyzer import BaseAnalyzer
-from analysis.classifier import Classifier
+from classification.classifier import Classifier
 from analysis.types import AnalysisType
-from behavior.graph_lstm import GraphBasedLSTMClassifier
-from human_object_interaction.interaction import HumanObjectInteractionAnalyzer
+from analysis.human_object_interaction.interaction import HumanObjectInteractionAnalyzer
+from classification.people_presence.simple_presence_classifier import SimplePresenceClassifier
 from notifications.notification_delegate import send_notification
-from object_detection.detector import ObjectDetector
-from optical_flow.optical_flow import OpticalFlowAnalyzer
-from pose_detection.pose_detector import PoseDetector
-from temporal_difference.temporal_difference import TemporalDifferenceAnalyzer
+from analysis.object_detection.detector import ObjectDetector
+from analysis.optical_flow.optical_flow import OpticalFlowAnalyzer
+from analysis.pose_detection.pose_detector import PoseDetector
+from analysis.temporal_difference.temporal_difference import TemporalDifferenceAnalyzer
 from util.connection_iterator import ConnIterator
 
 
@@ -40,7 +40,7 @@ if __name__ == '__main__':
     os.environ["KERAS_BACKEND"] = "tensorflow"
     # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
-    RTSP_URL = "rtsp://user:pass@192.168.0.189:554/h264Preview_01_main"  # stdin arg
+    RTSP_URL = "video.MOV"  # "rtsp://user:pass@192.168.0.189:554/h264Preview_01_main"  # stdin arg
     video_source = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
     assert video_source.isOpened(), "Error opening video stream"
 
@@ -51,9 +51,10 @@ if __name__ == '__main__':
     sink_receiver, sink_sender = mp.Pipe(duplex=False)
 
     # TODO: decide which analysis components to use
-    analyzers: list[BaseAnalyzer] = [HumanObjectInteractionAnalyzer(ObjectDetector()), PoseDetector(),
-                                     OpticalFlowAnalyzer(), TemporalDifferenceAnalyzer(),
-                                     ActivityRecognitionAnalyzer(fps, timedelta(seconds=3))]
+    # analyzers: list[BaseAnalyzer] = [HumanObjectInteractionAnalyzer(ObjectDetector()), PoseDetector(),
+    #                                  OpticalFlowAnalyzer(), TemporalDifferenceAnalyzer(),
+    #                                  ActivityRecognitionAnalyzer(fps, timedelta(seconds=3))]
+    analyzers: list[BaseAnalyzer] = [ObjectDetector()]
 
     pipes: list[tuple[cn.Connection, cn.Connection]] = [mp.Pipe(duplex=False) for _ in analyzers]
 
@@ -63,18 +64,21 @@ if __name__ == '__main__':
     [process.start() for process in processes]
 
     # TODO: decide which classifier to use
-    classifier: Classifier = GraphBasedLSTMClassifier(6, 32)
+    # classifier: Classifier = GraphBasedLSTMClassifier(6, 32)
+    classifier: Classifier = SimplePresenceClassifier()
 
     classifier_process = mp.Process(target=sink, args=(classifier, sink_receiver,))
     classifier_process.start()
 
     read_attempts: int = 3
+    total_frames = 30
+    frames = 0
 
     # through some experiments, it takes a little over 5 seconds for YOLO to process 24 frames
     # this is with pure python, running on CPU
     # for a real-time scenario, this would really lag behind
     # GPU acceleration, Nuitka compilation and/or other optimizations should be considered
-    while video_source.isOpened():
+    while video_source.isOpened() and frames < total_frames:
         ok, frame = video_source.read()  # network I/O
         if not ok and read_attempts > 0:
             read_attempts -= 1
@@ -84,6 +88,7 @@ if __name__ == '__main__':
         read_attempts = 3  # guard only non-transitive failures
 
         [dest.send(frame) for _, dest in pipes]
+        frames += 1
 
     # stop on camera disconnect
     video_source.release()

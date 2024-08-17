@@ -23,9 +23,10 @@ class ObjectDetector(SingleFrameAnalyzer):
         boxes: ultralytics.engine.results.Boxes = results.boxes.cpu()
         # keypoints (Keypoints, optional): Object containing detected keypoints for each object.
         # keypoints = results.keypoints.cpu()  # is  this needed?
-        # class_names_dict = results.names
+        if len(boxes.data) == 0:
+            return []
 
-        return [len(boxes.data), *boxes.xyxy, *boxes.cls, *boxes.conf]
+        return [*zip(boxes.xyxy, boxes.conf)]
 
     def detect(self, frame: cv2.typing.MatLike, people_only: bool = False) -> ultralytics.engine.results.Results:
         if self.model is None:

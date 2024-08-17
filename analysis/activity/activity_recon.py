@@ -24,7 +24,7 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
             transforms.Normalize(mean=[0.43216, 0.394666, 0.37645], std=[0.22803, 0.22145, 0.216989])
         ])
         # Load the class labels
-        with open('../kinetics_400_labels.csv', 'r', newline='') as csvfile:
+        with open('kinetics_400_labels.csv', 'r', newline='') as csvfile:
             reader = csv.DictReader(csvfile)
             self.kinetics_classes = [name for _, name in reader]
 
