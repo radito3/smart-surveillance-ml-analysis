@@ -11,6 +11,7 @@ from analysis.classifier import Classifier
 from analysis.types import AnalysisType
 from behavior.graph_lstm import GraphBasedLSTMClassifier
 from human_object_interaction.interaction import HumanObjectInteractionAnalyzer
+from notifications.notification_delegate import send_notification
 from object_detection.detector import ObjectDetector
 from optical_flow.optical_flow import OpticalFlowAnalyzer
 from pose_detection.pose_detector import PoseDetector
@@ -32,8 +33,7 @@ def analyzer_wrapper(analyzer: BaseAnalyzer, frame_src: cn.Connection, sink: cn.
 def sink(classifier: Classifier, sink_conn: cn.Connection) -> None:
     for dtype, data in ConnIterator[tuple[AnalysisType, Any]](sink_conn):
         if classifier.classify_as_suspicious(data):
-            # TODO: send notification
-            print("suspicious behaviour detected")
+            send_notification(())
 
 
 if __name__ == '__main__':
