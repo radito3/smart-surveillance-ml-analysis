@@ -113,10 +113,10 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         return bool(result[0]) if len(result) > 0 else False
 
     def _create_graph(self, yolo_results):
-        features, edges = self._extract_graph(yolo_results)
+        features, edges, edge_weights = self._extract_graph(yolo_results)
         return Data(x=torch.tensor(features, dtype=torch.float),
                     edge_index=torch.tensor(edges, dtype=torch.long).t().contiguous(),
-                    # edge_attr=  # Edge feature matrix with shape [num_edges, num_edge_features=1]
+                    edge_attr=torch.tensor(edge_weights, dtype=torch.float)
                     )
 
     def _extract_graph(self, yolo_results):
@@ -174,24 +174,24 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         features = np.hstack((detects_only, velocities.reshape(-1, 1), directions.reshape(-1, 1)))
 
         # Define edges based on proximity and relative direction
-        threshold_distance = 1000  # TODO: what unit of measurement is this? pixels?
-        threshold_angle = np.pi / 4  # 45 degrees threshold
+        # threshold_distance = 1000  # TODO: what unit of measurement is this? pixels?
+        # threshold_angle = np.pi / 4  # 45 degrees threshold
         edges = []
-        # edge_weights = []
+        edge_weights = []
         for i in range(len(features)):
             for j in range(i + 1, len(features)):
                 distance = np.linalg.norm(centroids_current[i] - centroids_current[j])
                 relative_angle = np.abs(directions[i] - directions[j])
-                # TODO: figure out how to use this weight, as it can be useful because it represents interaction level
                 edge_weight = distance / relative_angle if relative_angle != 0 else distance
 
                 # is a complete (fully-connected) graph good here? why not?
                 edges.append((i, j))
                 edges.append((j, i))  # because the graph is undirected
-                # edge_weights.append(edge_weight)
+                edge_weights.append(edge_weight)
+                edge_weights.append(edge_weight)
 
         self.prev_detections = detections
-        return features, edges
+        return features, edges, edge_weights
 
     @staticmethod
     def _get_centroid(bbox) -> np.ndarray:
