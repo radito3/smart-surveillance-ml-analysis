@@ -39,8 +39,6 @@ def sink(classifier: Classifier, sink_conn: cn.Connection) -> None:
 
 
 if __name__ == '__main__':
-    print(np.random.randint(0, 255, (5, 4)))
-
     os.environ["KERAS_BACKEND"] = "tensorflow"
     # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
@@ -68,7 +66,10 @@ if __name__ == '__main__':
     [process.start() for process in processes]
 
     # TODO: decide which classifier to use
-    classifier = GraphBasedLSTMClassifier(3, 16)
+    classifier = GraphBasedLSTMClassifier(
+        6,  # we need either *2 or +3 here because we are calculating 3 features
+        16
+    )
     classifier.eval()
     # classifier: Classifier = SimplePresenceClassifier()
 

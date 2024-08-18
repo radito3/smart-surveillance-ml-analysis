@@ -1,8 +1,9 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from torch_geometric.nn import GCNConv, global_mean_pool, SAGPooling
+from torch_geometric.nn import GCNConv, global_mean_pool, global_max_pool, SAGPooling
 from torch_geometric.data import Data
+from itertools import zip_longest
 
 from classification.classifier import Classifier
 
@@ -50,6 +51,7 @@ class GraphNetWithSAGPooling(torch.nn.Module):
         self.conv2 = GCNConv(16, hidden_dim)
         # TODO: try out global_max_pool as well
         self.global_pool = global_mean_pool  # Ensures a fixed-size output
+        # self.global_pool = global_max_pool
 
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
@@ -57,7 +59,7 @@ class GraphNetWithSAGPooling(torch.nn.Module):
         # TODO: is the global mean pooling necessary if we are passing the batch vector to the SAG pooling layer?
         x, edge_index, _, batch, _, _ = self.filter_pool(x, edge_index, None, batch)  # SAGPooling applied
         x = torch.relu(self.conv2(x, edge_index))
-        print(f"batch: {batch}")
+        # print(f"batch: {batch}")
         x = self.global_pool(x, batch)  # Global pool to enforce a fixed-sized output
         return x
 
@@ -105,15 +107,16 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         self.buffer = self.buffer[self.window_step:]
 
         predictions: torch.Tensor = self.forward(graph_data_sequences)
-        print(predictions)
+        print(f"predictions: {predictions}")
         # greater-than or equal
-        result = torch.ge(predictions, 0.6).bool()
+        result = torch.ge(torch.flatten(predictions), 0.5).bool()  # experiment and tune this threshold value
         return bool(result[0]) if len(result) > 0 else False
 
     def _create_graph(self, yolo_results):
         features, edges = self._extract_graph(yolo_results)
         return Data(x=torch.tensor(features, dtype=torch.float),
-                    edge_index=torch.tensor(edges, dtype=torch.long).t().contiguous()
+                    edge_index=torch.tensor(edges, dtype=torch.long).t().contiguous(),
+                    # edge_attr=  # Edge feature matrix with shape [num_edges, num_edge_features=1]
                     )
 
     def _extract_graph(self, yolo_results):
@@ -130,42 +133,67 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         The edges should have a higher index if people are close together multiplied by if they are facing each other.
         """
 
-        # detections = np.random.randint(0, 255, (5, 4))  # [xmin, ymin, xmax, ymax] for 5 objects
-        # format per tensor: [xmin, ymin, xmax, ymax]
         # we don't need the confidence scores here
-        detections = [box_tensor for box_tensor, _ in yolo_results]
+        detections = [(box_tensor, box_id) for box_tensor, box_id, _ in yolo_results]
+        if len(detections) < len(self.prev_detections):
+            for _ in range(len(self.prev_detections) - len(detections)):
+                detections.append((
+                    torch.flatten(torch.full((1, 4), 0, dtype=torch.float32)),
+                    -1
+                ))
 
         # Calculate centroids for velocity calculations
-        centroids_current = np.stack([(detections[:, 0] + detections[:, 2]) / 2,
-                                      (detections[:, 1] + detections[:, 3]) / 2], axis=-1)
+        centroids_current = np.array([
+            [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2] for bbox, _ in detections
+        ])
 
         # Velocity can be the magnitude of change in position
         # Direction can be encapsulated as the angle of movement
         if len(self.prev_detections) > 0:
-            centroids_prev = np.stack([(self.prev_detections[:, 0] + self.prev_detections[:, 2]) / 2,
-                                       (self.prev_detections[:, 1] + self.prev_detections[:, 3]) / 2], axis=-1)
-            displacement = centroids_current - centroids_prev
+            # centroids_prev = np.array([
+            #     [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2] for bbox, _ in self.prev_detections
+            # ])
+
+            # displacement = centroids_current - centroids_prev
+            displacement = [self._get_centroid(current_bbox) - self._get_centroid(prev_bbox)
+                            if current_id == prev_id else np.zeros(2, dtype=np.float32)
+                            for (current_bbox, current_id), (prev_bbox, prev_id) in
+                            # zip(detections, self.prev_detections)
+                            zip_longest(detections, self.prev_detections, fillvalue=(np.zeros(4, dtype=np.float32), -1))
+                            ]
+
             velocities = np.linalg.norm(displacement, axis=1)
-            directions = np.arctan2(displacement[:, 1], displacement[:, 0])  # In radians
+            # directions = np.arctan2(displacement[:, 1], displacement[:, 0])  # In radians
+            directions = np.array([np.arctan2(centroid[1], centroid[0]) for centroid in displacement])  # In radians
         else:
             velocities = np.zeros(len(centroids_current))
             directions = np.zeros(len(centroids_current))
 
+        detects_only = [bbox for bbox, _ in detections]
         # Extract features for bounding boxes in xyxy format, velocity, and movement direction.
-        features = np.hstack((detections, velocities.reshape(-1, 1), directions.reshape(-1, 1)))
+        features = np.hstack((detects_only, velocities.reshape(-1, 1), directions.reshape(-1, 1)))
 
         # Define edges based on proximity and relative direction
-        threshold_distance = 50  # TODO: what unit of measurement is this? pixels?
+        threshold_distance = 1000  # TODO: what unit of measurement is this? pixels?
         threshold_angle = np.pi / 4  # 45 degrees threshold
         edges = []
+        # edge_weights = []
         for i in range(len(features)):
             for j in range(i + 1, len(features)):
                 distance = np.linalg.norm(centroids_current[i] - centroids_current[j])
                 relative_angle = np.abs(directions[i] - directions[j])
+                # TODO: figure out how to use this weight, as it can be useful because it represents interaction level
+                edge_weight = distance / relative_angle if relative_angle != 0 else distance
 
-                if distance < threshold_distance and relative_angle < threshold_angle:
-                    edges.append((i, j))
-                    edges.append((j, i))  # because the graph is undirected
+                # is a complete (fully-connected) graph good here? why not?
+                edges.append((i, j))
+                edges.append((j, i))  # because the graph is undirected
+                # edge_weights.append(edge_weight)
 
         self.prev_detections = detections
         return features, edges
+
+    @staticmethod
+    def _get_centroid(bbox) -> np.ndarray:
+        # bounding box in xyxy format [xmin, ymin, xmax, ymax]
+        return np.array([(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)
