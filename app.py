@@ -42,6 +42,7 @@ if __name__ == '__main__':
     os.environ["KERAS_BACKEND"] = "tensorflow"
     # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+    # TODO: test with a large difference of people between frames
     RTSP_URL = "video.MOV"  # "rtsp://user:pass@192.168.0.189:554/h264Preview_01_main"  # stdin arg
     video_source = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
     assert video_source.isOpened(), "Error opening video stream"

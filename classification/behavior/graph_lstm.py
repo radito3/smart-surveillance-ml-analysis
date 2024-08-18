@@ -8,41 +8,8 @@ from itertools import zip_longest
 from classification.classifier import Classifier
 
 
-class GraphFeatureLSTM(nn.Module):
-    def __init__(self, input_dim,  # Depending on the number of features per node (bbox + velocity + direction)
-                 hidden_dim,
-                 num_layers):
-        super(GraphFeatureLSTM, self).__init__()
-        self.embedding = nn.Linear(input_dim, hidden_dim)
-        self.lstm = nn.LSTM(hidden_dim, hidden_dim, num_layers, batch_first=True)
-        self.output_layer = nn.Linear(hidden_dim, 1)  # Outputting a single probability
-        self.to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-
-    def forward(self, x, batch_index):
-        # x: Node features [batch_size, num_nodes, num_features]
-        # batch_index: To indicate graph structure when nodes from several graphs are batched together
-        num_graphs = batch_index.max().item() + 1
-
-        # Embedding layer
-        x = self.embedding(x)
-
-        batch_sizes = 20
-        # Pack sequence for LSTM processing
-        packed_input = nn.utils.rnn.pack_padded_sequence(x, batch_sizes, batch_first=True, enforce_sorted=False)
-        packed_output, (ht, ct) = self.lstm(packed_input)
-
-        # Unpack the sequence
-        output, input_sizes = nn.utils.rnn.pad_packed_sequence(packed_output, batch_first=True)
-
-        # Pooling (Global mean pooling in this case)
-        pooled_output = global_mean_pool(output, batch_index)
-
-        # Output layer for each graph with sigmoid activation
-        out = torch.sigmoid(self.output_layer(pooled_output))
-        return out
-
-
 class GraphNetWithSAGPooling(torch.nn.Module):
+    # how will this inner network update its weights when training? where would the feedback come from?
     def __init__(self, node_features, hidden_dim):
         super(GraphNetWithSAGPooling, self).__init__()
         self.conv1 = GCNConv(node_features, 16)  # Experiment with 32 and maybe even 64 channels
