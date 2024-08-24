@@ -24,17 +24,10 @@ class HumanObjectInteractionAnalyzer(SingleFrameAnalyzer):
         # a more accurate feature vector would take into consideration the euclidian distance between certain body
         # parts and objects - if it's sufficiently small, then it would be reasonable to assume that the person is
         # directly interacting with that object (e.g. holding a knife)
-        # TODO: research the body keypoints format that RTMO returns and evaluate which ones represent arms, legs, etc.
         # + the amount of time an object has been "held" could hold some valuable info?
         # + if there are rapid changes in position (high velocity) in both the object and the human body part closest
         #   to it - that would probably mean rapid movement of a potentially dangerous object
 
         # another potentially beneficial piece of information would be if there are objects with high velocities
         # in the frame - that could mean something is thrown, falling, sliding, etc., which could be suspicious
-
-        # the velocity could be calculated with the change in coordinates between frames:
-        # - we know the frames per second
-        # - we know the time between frames
-        # - we need to calculate the relative distance between the camera and the object, by knowing the distance
-        #   to a reference object, so we know what kind of real distance a single pixel for example represents
         return []

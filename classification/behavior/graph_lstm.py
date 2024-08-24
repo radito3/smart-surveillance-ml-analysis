@@ -5,6 +5,7 @@ from torch_geometric.nn import GCNConv, global_mean_pool, global_max_pool, SAGPo
 from torch_geometric.data import Data
 from itertools import zip_longest
 
+from analysis.types import AnalysisType
 from classification.classifier import Classifier
 
 
@@ -48,8 +49,6 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         self.prev_detections: list[torch.Tensor] = []
         self.buffer = []
 
-        self.to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-
     def forward(self, graph_data_sequences):
         # Assuming graph_data_sequences is a list of graph data for each time step
         embeddings = []
@@ -62,14 +61,12 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         predictions = self.output_layer(lstm_out[:, -1, :])  # Classify based on the output of the last time step
         return torch.sigmoid(predictions)
 
-    def classify_as_suspicious(self, vector: list[any]) -> bool:
+    def classify_as_suspicious(self, dtype: AnalysisType, vector: list[any]) -> bool:
         if len(self.buffer) < self.window_size:
             self.buffer.append(vector)
             return False
 
-        graph_data_sequences = []
-        for yolo_results in self.buffer:
-            graph_data_sequences.append(self._create_graph(yolo_results))
+        graph_data_sequences = [self._create_graph(yolo_results) for yolo_results in self.buffer]
 
         self.buffer = self.buffer[self.window_step:]
 
@@ -80,10 +77,10 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         return bool(result[0]) if len(result) > 0 else False
 
     def _create_graph(self, yolo_results):
-        features, edges, edge_weights = self._extract_graph(yolo_results)
-        return Data(x=torch.tensor(features, dtype=torch.float),
-                    edge_index=torch.tensor(edges, dtype=torch.long).t().contiguous(),
-                    edge_attr=torch.tensor(edge_weights, dtype=torch.float)
+        nodes, edges = self._extract_graph(yolo_results)
+        return Data(x=torch.tensor(nodes, dtype=torch.float),
+                    edge_index=torch.tensor([(x, y) for x, y, _ in edges], dtype=torch.long).t().contiguous(),
+                    edge_attr=torch.tensor([weight for _, _, weight in edges], dtype=torch.float)
                     )
 
     def _extract_graph(self, yolo_results):
@@ -92,9 +89,9 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
          - orientation (where a person is facing)
          - velocity
          - average velocity?
-         - body position - standing, sitting, laying | or body pose key points
+         - body position - standing, sitting, laying
+
          - activity - while very important, needs time series data, which won’t work for single frames
-         - position in frame? (only matters in relation to other people)
          - whether he is holding something?
 
         The edges should have a higher index if people are close together multiplied by if they are facing each other.
@@ -144,7 +141,6 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         # threshold_distance = 1000  # TODO: what unit of measurement is this? pixels?
         # threshold_angle = np.pi / 4  # 45 degrees threshold
         edges = []
-        edge_weights = []
         for i in range(len(features)):
             for j in range(i + 1, len(features)):
                 distance = np.linalg.norm(centroids_current[i] - centroids_current[j])
@@ -152,13 +148,11 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
                 edge_weight = distance / relative_angle if relative_angle != 0 else distance
 
                 # is a complete (fully-connected) graph good here? why not?
-                edges.append((i, j))
-                edges.append((j, i))  # because the graph is undirected
-                edge_weights.append(edge_weight)
-                edge_weights.append(edge_weight)
+                edges.append((i, j, edge_weight))
+                edges.append((j, i, edge_weight))  # because the graph is undirected
 
         self.prev_detections = detections
-        return features, edges, edge_weights
+        return features, edges
 
     @staticmethod
     def _get_centroid(bbox) -> np.ndarray:

@@ -1,3 +1,4 @@
+from analysis.types import AnalysisType
 from classification.classifier import Classifier
 
 
@@ -7,7 +8,7 @@ class SuspiciousActivityClassifier(Classifier):
         # mark specific activities as suspicious
         self.suspicious_activities_indices = suspicious_activities_indices
 
-    def classify_as_suspicious(self, vector: list[any]) -> bool:
+    def classify_as_suspicious(self, dtype: AnalysisType,  vector: list[any]) -> bool:
         if len(vector) == 0:
             return False
 

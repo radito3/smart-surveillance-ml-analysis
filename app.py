@@ -2,9 +2,11 @@ import cv2
 import multiprocessing as mp
 import multiprocessing.connection as cn
 import os
+import signal
 from typing import Any
 from datetime import timedelta
 import numpy as np
+import torch
 
 from analysis.activity.activity_recon import ActivityRecognitionAnalyzer
 from analysis.analyzer import BaseAnalyzer
@@ -34,7 +36,7 @@ def analyzer_wrapper(analyzer: BaseAnalyzer, frame_src: cn.Connection, sink: cn.
 
 def sink(classifier: Classifier, sink_conn: cn.Connection) -> None:
     for dtype, data in ConnIterator[tuple[AnalysisType, Any]](sink_conn):
-        if classifier.classify_as_suspicious(data):
+        if classifier.classify_as_suspicious(dtype, data):
             send_notification('localhost:50051')
 
 
@@ -42,10 +44,16 @@ if __name__ == '__main__':
     os.environ["KERAS_BACKEND"] = "tensorflow"
     # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
-    # TODO: test with a large difference of people between frames
     RTSP_URL = "video.MOV"  # "rtsp://user:pass@192.168.0.189:554/h264Preview_01_main"  # stdin arg
     video_source = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
     assert video_source.isOpened(), "Error opening video stream"
+
+    def close_video_capture(signum, frame):
+        global video_source
+        video_source.release()
+
+    signal.signal(signal.SIGINT, close_video_capture)
+    signal.signal(signal.SIGTERM, close_video_capture)
 
     w, h, fps = (int(video_source.get(x)) for x in [cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS])
     print(f"width: {w}, height: {h}, fps: {fps}")  # debug only
@@ -67,10 +75,8 @@ if __name__ == '__main__':
     [process.start() for process in processes]
 
     # TODO: decide which classifier to use
-    classifier = GraphBasedLSTMClassifier(
-        6,  # we need either *2 or +3 here because we are calculating 3 features
-        16
-    )
+    classifier = GraphBasedLSTMClassifier(6, 16)
+    classifier.to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
     classifier.eval()
     # classifier: Classifier = SimplePresenceClassifier()
 

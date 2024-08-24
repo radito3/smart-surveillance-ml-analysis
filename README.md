@@ -33,7 +33,7 @@ ML Analysis pipeline for the Smart Surveillance System
 throughout the ML pipeline and add a red bounding box in the dashboard video feed if so OR just display a warning in the camera scene
  - [variable input size for neural network](https://stats.stackexchange.com/a/138760)
  - [Comparative Analysis of OpenPose, PoseNet, and MoveNet](https://iieta.org/journals/ts/paper/10.18280/ts.390111)
- - write about the [RTMO](https://arxiv.org/html/2312.07526v1) model; [additional info](https://github.com/open-mmlab/mmpose/tree/main/projects/rtmo)
+ - write about the [RTMO](https://arxiv.org/pdf/2312.07526) model; [additional info](https://github.com/open-mmlab/mmpose/tree/main/projects/rtmo)
  - write a comparison between [YOLO-pose](https://docs.ultralytics.com/tasks/pose) (two-stage top-down detector) and RTMO (one-stage detector)
  - write about ONNX Runtime
  - write about [LSTM vs Transformers](https://deep-learning-mit.github.io/staging/blog/2023/time-series-lstm-transformer/)
