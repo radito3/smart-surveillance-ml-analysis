@@ -65,7 +65,7 @@ if __name__ == '__main__':
     # analyzers: list[BaseAnalyzer] = [HumanObjectInteractionAnalyzer(ObjectDetector()), PoseDetector(),
     #                                  OpticalFlowAnalyzer(), TemporalDifferenceAnalyzer(),
     #                                  ActivityRecognitionAnalyzer(fps, timedelta(seconds=3))]
-    analyzers: list[BaseAnalyzer] = [ObjectDetector()]
+    analyzers: list[BaseAnalyzer] = [ObjectDetector(), PoseDetector()]
 
     pipes: list[tuple[cn.Connection, cn.Connection]] = [mp.Pipe(duplex=False) for _ in analyzers]
 
@@ -75,7 +75,7 @@ if __name__ == '__main__':
     [process.start() for process in processes]
 
     # TODO: decide which classifier to use
-    classifier = GraphBasedLSTMClassifier(6, 16)
+    classifier = GraphBasedLSTMClassifier(4, 16)
     classifier.to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
     classifier.eval()
     # classifier: Classifier = SimplePresenceClassifier()

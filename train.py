@@ -36,7 +36,7 @@ print('Training set has {} instances'.format(len(training_set)))
 print('Validation set has {} instances'.format(len(validation_set)))
 
 
-loss_fn = torch.nn.CrossEntropyLoss()
+loss_fn = torch.nn.BCEWithLogitsLoss()
 
 # NB: Loss functions expect data in batches, so we're creating batches of 4
 # Represents the model's confidence in each of the 10 classes for a given input
@@ -50,6 +50,8 @@ print(dummy_labels)
 loss = loss_fn(dummy_outputs, dummy_labels)
 print('Total loss for this batch: {}'.format(loss.item()))
 
+# consider precision, recall, F1-score, and ROC-AUC for metrics
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
 # Optimizers specified in the torch.optim package
 optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
@@ -99,6 +101,9 @@ epoch_number = 0
 EPOCHS = 5
 
 best_vloss = 1_000_000.
+
+# Perform k-fold cross-validation to ensure your model generalizes well across different
+# scenes and configurations
 
 for epoch in range(EPOCHS):
     print('EPOCH {}:'.format(epoch_number + 1))

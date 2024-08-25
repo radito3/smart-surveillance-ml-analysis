@@ -10,7 +10,6 @@ from classification.classifier import Classifier
 
 
 class GraphNetWithSAGPooling(torch.nn.Module):
-    # how will this inner network update its weights when training? where would the feedback come from?
     def __init__(self, node_features, hidden_dim):
         super(GraphNetWithSAGPooling, self).__init__()
         self.conv1 = GCNConv(node_features, 16)  # Experiment with 32 and maybe even 64 channels
@@ -47,7 +46,9 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         self.window_size = 36  # 1.5 seconds of frames (at 24 fps)
         self.window_step = 10  # every 10 frames move to a new window
         self.prev_detections: list[torch.Tensor] = []
-        self.buffer = []
+        self.yolo_buffer = []
+        self.pose_buffer = []
+        self.velocities = {}
 
     def forward(self, graph_data_sequences):
         # Assuming graph_data_sequences is a list of graph data for each time step
@@ -61,14 +62,18 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         predictions = self.output_layer(lstm_out[:, -1, :])  # Classify based on the output of the last time step
         return torch.sigmoid(predictions)
 
+    @torch.no_grad()
     def classify_as_suspicious(self, dtype: AnalysisType, vector: list[any]) -> bool:
-        if len(self.buffer) < self.window_size:
-            self.buffer.append(vector)
+        if len(self.yolo_buffer) < self.window_size or len(self.pose_buffer) < self.window_size:
+            self.yolo_buffer.append(vector) if dtype == AnalysisType.PersonDetection else None
+            self.pose_buffer.append(vector) if dtype == AnalysisType.PoseEstimation else None
             return False
 
-        graph_data_sequences = [self._create_graph(yolo_results) for yolo_results in self.buffer]
+        graph_data_sequences = [self._create_graph(yolo_results, pose_results) for yolo_results, pose_results in
+                                zip(self.yolo_buffer, self.pose_buffer)]
 
-        self.buffer = self.buffer[self.window_step:]
+        self.yolo_buffer = self.yolo_buffer[self.window_step:]
+        self.pose_buffer = self.pose_buffer[self.window_step:]
 
         predictions: torch.Tensor = self.forward(graph_data_sequences)
         print(f"predictions: {predictions}")
@@ -76,85 +81,261 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         result = torch.ge(torch.flatten(predictions), 0.5).bool()  # experiment and tune this threshold value
         return bool(result[0]) if len(result) > 0 else False
 
-    def _create_graph(self, yolo_results):
-        nodes, edges = self._extract_graph(yolo_results)
+    def _create_graph(self, yolo_results, pose_results):
+        nodes, edges = self._extract_graph(yolo_results, pose_results)
         return Data(x=torch.tensor(nodes, dtype=torch.float),
                     edge_index=torch.tensor([(x, y) for x, y, _ in edges], dtype=torch.long).t().contiguous(),
                     edge_attr=torch.tensor([weight for _, _, weight in edges], dtype=torch.float)
                     )
 
-    def _extract_graph(self, yolo_results):
+    def _extract_graph(self, yolo_results, pose_results):
         """
-        The node features should be:
+        The node features are:
          - orientation (where a person is facing)
          - velocity
-         - average velocity?
+         - average velocity
          - body position - standing, sitting, laying
 
-         - activity - while very important, needs time series data, which won’t work for single frames
-         - whether he is holding something?
-
-        The edges should have a higher index if people are close together multiplied by if they are facing each other.
+        The edges have a higher index if people are close together multiplied by if they are facing each other.
         """
 
         # we don't need the confidence scores here
         detections = [(box_tensor, box_id) for box_tensor, box_id, _ in yolo_results]
         if len(detections) < len(self.prev_detections):
             for _ in range(len(self.prev_detections) - len(detections)):
+                # pad the detections vector with a zero-values bbox and no ID
                 detections.append((
                     torch.flatten(torch.full((1, 4), 0, dtype=torch.float32)),
                     -1
                 ))
 
-        # Calculate centroids for velocity calculations
-        centroids_current = np.array([
-            [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2] for bbox, _ in detections
-        ])
+        centroids_current = np.array([self._calc_centroid(bbox) for bbox, _ in detections])
 
         # Velocity can be the magnitude of change in position
-        # Direction can be encapsulated as the angle of movement
-        if len(self.prev_detections) > 0:
-            # centroids_prev = np.array([
-            #     [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2] for bbox, _ in self.prev_detections
-            # ])
+        velocities = self._calc_velocities(detections)
+        # FIXME: when there is a person missing from the previous frame, but a new person present,
+        #  the average velocities are 1 element more than velocities
+        # TODO: trim the average velocities array to only include velocities of people tracked for the current frame
+        self._save_velocities(zip(detections, velocities))
 
-            # displacement = centroids_current - centroids_prev
-            displacement = [self._get_centroid(current_bbox) - self._get_centroid(prev_bbox)
-                            if current_id == prev_id else np.zeros(2, dtype=np.float32)
-                            for (current_bbox, current_id), (prev_bbox, prev_id) in
-                            # zip(detections, self.prev_detections)
-                            zip_longest(detections, self.prev_detections, fillvalue=(np.zeros(4, dtype=np.float32), -1))
-                            ]
+        average_velocities = self._calc_avg_velocities()
 
-            velocities = np.linalg.norm(displacement, axis=1)
-            # directions = np.arctan2(displacement[:, 1], displacement[:, 0])  # In radians
-            directions = np.array([np.arctan2(centroid[1], centroid[0]) for centroid in displacement])  # In radians
-        else:
-            velocities = np.zeros(len(centroids_current))
-            directions = np.zeros(len(centroids_current))
+        # Direction can be encapsulated as the angle of orientation
+        orientations = np.array([self._calculate_orientation(keypoints) for keypoints in pose_results], dtype=np.float32)
 
-        detects_only = [bbox for bbox, _ in detections]
-        # Extract features for bounding boxes in xyxy format, velocity, and movement direction.
-        features = np.hstack((detects_only, velocities.reshape(-1, 1), directions.reshape(-1, 1)))
+        body_positions = np.array([self._classify_position(keypoints) for keypoints in pose_results], dtype=np.float32)
 
-        # Define edges based on proximity and relative direction
-        # threshold_distance = 1000  # TODO: what unit of measurement is this? pixels?
-        # threshold_angle = np.pi / 4  # 45 degrees threshold
+        if len(yolo_results) > len(pose_results):  # this is bugged?
+            for _ in range(len(yolo_results) - len(pose_results)):
+                orientations = np.append(orientations, 0)
+                body_positions = np.append(body_positions, 0)
+
+        if len(pose_results) > len(yolo_results):
+            for _ in range(len(pose_results) - len(yolo_results)):
+                velocities = np.append(velocities, 0)
+                average_velocities = np.append(average_velocities, 0)
+                centroids_current = np.append(centroids_current, np.array([0, 0]))
+
+        print(f"body_pos: {len(body_positions)} vel: {len(velocities)} avg_vel: {len(average_velocities)}, orient: {len(orientations)}")
+
+        # Normalize the features using techniques such as Min-Max Scaling or Z-Score Normalization
+        # to ensure all input features contribute equally?
+        features = np.hstack((body_positions.reshape(-1, 1), velocities.reshape(-1, 1),
+                              average_velocities.reshape(-1, 1), orientations.reshape(-1, 1)))
+
+        # print(features)
+
+        # Define edges based on proximity and relative orientation
         edges = []
         for i in range(len(features)):
             for j in range(i + 1, len(features)):
                 distance = np.linalg.norm(centroids_current[i] - centroids_current[j])
-                relative_angle = np.abs(directions[i] - directions[j])
+                # TODO: calculate the relative angle based on the quadrant of the two people
+                relative_angle = 1  # np.abs(directions[i] - directions[j])
                 edge_weight = distance / relative_angle if relative_angle != 0 else distance
 
-                # is a complete (fully-connected) graph good here? why not?
+                # make a complete (fully-connected) graph
                 edges.append((i, j, edge_weight))
                 edges.append((j, i, edge_weight))  # because the graph is undirected
 
         self.prev_detections = detections
         return features, edges
 
+    def _calc_velocities(self, detections) -> np.array:
+        if len(self.prev_detections) > 0:
+            displacement = [self._calc_centroid(current_bbox) - self._calc_centroid(prev_bbox)
+                            if current_id == prev_id else np.zeros(2, dtype=np.float32)
+                            for (current_bbox, current_id), (prev_bbox, prev_id) in
+                            zip_longest(detections, self.prev_detections, fillvalue=(np.zeros(4, dtype=np.float32), -1))
+                            ]
+
+            return np.linalg.norm(displacement, axis=1)
+        else:
+            return np.zeros(len(detections))
+
     @staticmethod
-    def _get_centroid(bbox) -> np.ndarray:
+    def _calc_centroid(bbox) -> np.ndarray:
         # bounding box in xyxy format [xmin, ymin, xmax, ymax]
         return np.array([(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)
+
+    # TODO: verify this produces valid results
+    @staticmethod
+    def _classify_position(keypoints) -> int:
+        head_y = keypoints[0][1]
+        # shoulders_y = (keypoints[5][1] + keypoints[6][1]) / 2
+        hips_y = (keypoints[11][1] + keypoints[12][1]) / 2
+        knees_y = (keypoints[13][1] + keypoints[14][1]) / 2
+
+        if abs(head_y - hips_y) > 0.5 * abs(hips_y - knees_y):
+            return 0  # Standing
+        elif abs(head_y - hips_y) > 0.2 * abs(hips_y - knees_y):
+            return 1  # Sitting
+        else:
+            return -1  # Lying Down
+
+    @staticmethod
+    def _classify_body_position(keypoints):
+        """
+        Classify body position based on keypoints.
+
+        Args:
+            keypoints (ndarray): Array of shape (num_keypoints, 3).
+
+        Returns:
+            str: One of "Standing", "Sitting", "Lying Down", or "Unknown".
+        """
+        # Define keypoint indices based on COCO format
+        # COCO has 17 keypoints: 0 - nose, 1 - left eye, 2 - right eye, 3 - left ear,
+        # 4 - right ear, 5 - left shoulder, 6 - right shoulder,
+        # 7 - left elbow, 8 - right elbow, 9 - left wrist, 10 - right wrist,
+        # 11 - left hip, 12 - right hip, 13 - left knee, 14 - right knee,
+        # 15 - left ankle, 16 - right ankle
+        # For simplicity, we'll use average positions for shoulders, hips, knees
+
+        # Extract keypoints
+        nose = keypoints[0][:2]
+        left_shoulder = keypoints[5][:2]
+        right_shoulder = keypoints[6][:2]
+        left_hip = keypoints[11][:2]
+        right_hip = keypoints[12][:2]
+        left_knee = keypoints[13][:2]
+        right_knee = keypoints[14][:2]
+
+        # Average positions
+        shoulders = (left_shoulder + right_shoulder) / 2
+        hips = (left_hip + right_hip) / 2
+        knees = (left_knee + right_knee) / 2
+
+        # Calculate vertical differences
+        shoulder_hip_diff = abs(shoulders[1] - hips[1])
+        hip_knee_diff = abs(hips[1] - knees[1])
+        shoulder_nose_diff = abs(shoulders[1] - nose[1])
+
+        # Calculate horizontal differences to assess alignment
+        horizontal_diff = abs(shoulders[0] - hips[0]) + abs(hips[0] - knees[0])
+
+        # Define thresholds (these may need to be adjusted based on actual data and image scale)
+        vertical_threshold_standing = 100  # Example value
+        vertical_threshold_sitting = 50    # Example value
+        horizontal_threshold = 30          # Example value
+
+        # Determine posture
+        if shoulder_hip_diff > vertical_threshold_standing and hip_knee_diff > vertical_threshold_standing:
+            return "Standing"
+        elif shoulder_hip_diff > vertical_threshold_standing and hip_knee_diff < vertical_threshold_sitting:
+            return "Sitting"
+        elif horizontal_diff < horizontal_threshold:
+            return "Lying Down"
+        else:
+            return "Unknown"
+
+    @staticmethod
+    def _calculate_orientation(keypoints):
+        """
+        Calculate the orientation of the person in radians.
+
+        Args:
+            keypoints (ndarray): Array of shape (num_keypoints, 3 (x, y, confidence)).
+
+        Returns:
+            float: Orientation in radians.
+        """
+        left_shoulder = keypoints[5][:2]
+        right_shoulder = keypoints[6][:2]
+
+        delta_y = right_shoulder[1] - left_shoulder[1]
+        delta_x = right_shoulder[0] - left_shoulder[0]
+
+        # if angle_radians < 0:
+        #     angle_radians += 2*np.pi  # phase shift, so that values are only positive
+
+        # An angle of 0 radians means the line is perfectly horizontal
+        # A positive angle indicates a counterclockwise rotation from the horizontal
+        # A negative angle indicates a clockwise rotation from the horizontal
+        return np.arctan2(delta_y, delta_x)
+
+    @staticmethod
+    def _is_facing_towards_camera(keypoints):
+        nose = keypoints[0][:2]
+        left_eye = keypoints[1][:2]
+        right_eye = keypoints[2][:2]
+        left_shoulder = keypoints[5][:2]
+        right_shoulder = keypoints[6][:2]
+
+        # Check if keypoints are within the horizontal bounds of the shoulders
+        # shoulders_center = (left_shoulder[0] + right_shoulder[0]) / 2
+        # shoulder_width = abs(left_shoulder[0] - right_shoulder[0])
+
+        face_avg_x_pos = np.average(nose[0], left_eye[0], right_eye[0])
+        face_avg_conf = np.average(nose[2], left_eye[2], right_eye[2])
+
+        if (left_shoulder[0] <= face_avg_x_pos <= right_shoulder[0]) or face_avg_conf > 0.6:
+            return 1  # Facing Towards
+        # elif nose[0] < left_shoulder[0] or nose[0] > right_shoulder[0]:
+        #     return "Facing Away"
+        else:
+            return -1  # Facing Away
+
+    @staticmethod
+    def _determine_quadrant(orientation_radians, facing_direction):
+        """
+        Determine which quadrant the person is facing based on orientation and facing direction.
+
+        Args:
+            orientation_radians (float): Orientation angle in radians.
+            facing_direction (str): "Facing Towards" or "Facing Away".
+
+        Returns:
+            str: The quadrant the person is facing ("Quadrant I", "Quadrant II", "Quadrant III", "Quadrant IV").
+        """
+        if facing_direction == "Facing Towards":
+            if -np.pi/4 <= orientation_radians <= np.pi/4:
+                return "Quadrant I (Forward Right)"
+            elif np.pi/4 < orientation_radians <= 3*np.pi/4:
+                return "Quadrant II (Forward Left)"
+            elif orientation_radians < -np.pi/4 and orientation_radians >= -3*np.pi/4:
+                return "Quadrant IV (Forward Right)"
+            else:
+                return "Quadrant II (Forward Left)"
+        elif facing_direction == "Facing Away":
+            if -np.pi/4 <= orientation_radians <= np.pi/4:
+                return "Quadrant IV (Backward Right)"
+            elif np.pi/4 < orientation_radians <= 3*np.pi/4:
+                return "Quadrant III (Backward Left)"
+            elif orientation_radians < -np.pi/4 and orientation_radians >= -3*np.pi/4:
+                return "Quadrant I (Backward Right)"
+            else:
+                return "Quadrant III (Backward Left)"
+
+    def _save_velocities(self, bbox_velocities_tuples):
+        for (_, track_id), velocity in bbox_velocities_tuples:
+            id_val = int(track_id.item()) if isinstance(track_id, torch.Tensor) else int(track_id)
+            if id_val in self.velocities:
+                print("id in dict")
+                self.velocities[id_val].append(velocity)
+            else:
+                print("id not in dict. updating")
+                self.velocities.update({id_val: [velocity]})
+
+    def _calc_avg_velocities(self) -> np.array:
+        return np.array([np.average(velocities) for _, velocities in self.velocities.items()], dtype=np.float32)

@@ -9,7 +9,7 @@ class SuspiciousActivityClassifier(Classifier):
         self.suspicious_activities_indices = suspicious_activities_indices
 
     def classify_as_suspicious(self, dtype: AnalysisType,  vector: list[any]) -> bool:
-        if len(vector) == 0:
+        if dtype != AnalysisType.ActivityDetection or len(vector) == 0:
             return False
 
         for idx in self.suspicious_activities_indices:

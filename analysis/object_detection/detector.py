@@ -19,10 +19,7 @@ class ObjectDetector(SingleFrameAnalyzer):
 
     def analyze(self, frame: cv2.typing.MatLike, *args, **kwargs) -> list[any]:
         results = self.detect(frame, True)
-        # boxes (Boxes, optional): Object containing detection bounding boxes.
-        boxes: ultralytics.engine.results.Boxes = results.boxes.cpu()
-        # keypoints (Keypoints, optional): Object containing detected keypoints for each object.
-        # keypoints = results.keypoints.cpu()  # is  this needed?
+        boxes: ultralytics.engine.results.Boxes = results.boxes.cpu()  # bounding boxes
         if len(boxes.data) == 0:
             return []
 
