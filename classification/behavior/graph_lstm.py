@@ -101,31 +101,22 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
         # we don't need the confidence scores here
         detections = [(box_tensor, box_id) for box_tensor, box_id, _ in yolo_results]
-        if len(detections) < len(self.prev_detections):
-            for _ in range(len(self.prev_detections) - len(detections)):
-                # pad the detections vector with a zero-values bbox and no ID
-                detections.append((
-                    torch.flatten(torch.full((1, 4), 0, dtype=torch.float32)),
-                    -1
-                ))
 
         centroids_current = np.array([self._calc_centroid(bbox) for bbox, _ in detections])
 
         # Velocity can be the magnitude of change in position
         velocities = self._calc_velocities(detections)
-        # FIXME: when there is a person missing from the previous frame, but a new person present,
-        #  the average velocities are 1 element more than velocities
-        # TODO: trim the average velocities array to only include velocities of people tracked for the current frame
+
         self._save_velocities(zip(detections, velocities))
 
-        average_velocities = self._calc_avg_velocities()
+        average_velocities = self._calc_avg_velocities(detections)
 
         # Direction can be encapsulated as the angle of orientation
         orientations = np.array([self._calculate_orientation(keypoints) for keypoints in pose_results], dtype=np.float32)
 
         body_positions = np.array([self._classify_position(keypoints) for keypoints in pose_results], dtype=np.float32)
 
-        if len(yolo_results) > len(pose_results):  # this is bugged?
+        if len(yolo_results) > len(pose_results):
             for _ in range(len(yolo_results) - len(pose_results)):
                 orientations = np.append(orientations, 0)
                 body_positions = np.append(body_positions, 0)
@@ -136,14 +127,10 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
                 average_velocities = np.append(average_velocities, 0)
                 centroids_current = np.append(centroids_current, np.array([0, 0]))
 
-        print(f"body_pos: {len(body_positions)} vel: {len(velocities)} avg_vel: {len(average_velocities)}, orient: {len(orientations)}")
-
         # Normalize the features using techniques such as Min-Max Scaling or Z-Score Normalization
         # to ensure all input features contribute equally?
         features = np.hstack((body_positions.reshape(-1, 1), velocities.reshape(-1, 1),
                               average_velocities.reshape(-1, 1), orientations.reshape(-1, 1)))
-
-        # print(features)
 
         # Define edges based on proximity and relative orientation
         edges = []
@@ -161,17 +148,50 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         self.prev_detections = detections
         return features, edges
 
+    @staticmethod
+    def __contains_by_id(detections, track_id) -> bool:
+        for _, _id in detections:
+            id_val = int(track_id.item()) if isinstance(track_id, torch.Tensor) else int(track_id)
+            id_cmp_val = int(_id.item()) if isinstance(_id, torch.Tensor) else int(_id)
+            if id_cmp_val == id_val:
+                return True
+        return False
+
     def _calc_velocities(self, detections) -> np.array:
         if len(self.prev_detections) > 0:
+            if len(detections) > len(self.prev_detections):
+                generator = zip_longest(detections, self.prev_detections,
+                                        fillvalue=(np.zeros(4, dtype=np.float32), -1))
+            else:
+                generator = zip(detections,
+                                filter(lambda tpl: self.__contains_by_id(detections, tpl[1]), self.prev_detections))
             displacement = [self._calc_centroid(current_bbox) - self._calc_centroid(prev_bbox)
                             if current_id == prev_id else np.zeros(2, dtype=np.float32)
-                            for (current_bbox, current_id), (prev_bbox, prev_id) in
-                            zip_longest(detections, self.prev_detections, fillvalue=(np.zeros(4, dtype=np.float32), -1))
+                            for (current_bbox, current_id), (prev_bbox, prev_id) in generator
                             ]
 
             return np.linalg.norm(displacement, axis=1)
         else:
             return np.zeros(len(detections))
+
+    def _save_velocities(self, bbox_velocities_tuples):
+        for (_, track_id), velocity in bbox_velocities_tuples:
+            id_val = int(track_id.item()) if isinstance(track_id, torch.Tensor) else int(track_id)
+            if id_val in self.velocities:
+                self.velocities[id_val].append(velocity)
+            else:
+                self.velocities.update({id_val: [velocity]})
+
+    def _calc_avg_velocities(self, detections) -> np.array:
+        def __contains_by_id(track_id: int) -> bool:
+            for _, _id in detections:
+                if _id == track_id:
+                    return True
+            return False
+
+        return np.array(
+            [np.average(velocities) for track_id, velocities in self.velocities.items() if __contains_by_id(track_id)],
+            dtype=np.float32)
 
     @staticmethod
     def _calc_centroid(bbox) -> np.ndarray:
@@ -326,16 +346,3 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
                 return "Quadrant I (Backward Right)"
             else:
                 return "Quadrant III (Backward Left)"
-
-    def _save_velocities(self, bbox_velocities_tuples):
-        for (_, track_id), velocity in bbox_velocities_tuples:
-            id_val = int(track_id.item()) if isinstance(track_id, torch.Tensor) else int(track_id)
-            if id_val in self.velocities:
-                print("id in dict")
-                self.velocities[id_val].append(velocity)
-            else:
-                print("id not in dict. updating")
-                self.velocities.update({id_val: [velocity]})
-
-    def _calc_avg_velocities(self) -> np.array:
-        return np.array([np.average(velocities) for _, velocities in self.velocities.items()], dtype=np.float32)
