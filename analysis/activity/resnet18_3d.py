@@ -1,6 +1,5 @@
 import torch
 from datetime import timedelta
-import torchvision.transforms as transforms
 import cv2
 import csv
 import numpy as np
@@ -18,14 +17,6 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
         self.model.eval()  # Set the model to evaluation mode
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
-        self.transform = transforms.Compose([
-            # transforms.Resize((128, 171)),
-            transforms.Resize((112, 112)),
-            transforms.CenterCrop((112, 112)),
-            transforms.ToTensor(),
-            # transforms.Normalize(mean=[0.43216, 0.394666, 0.37645], std=[0.22803, 0.22145, 0.216989])
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
         # Load the class labels
         with open('analysis/activity/kinetics_400_labels.csv', 'r', newline='') as csvfile:
             reader = csv.DictReader(csvfile)
@@ -35,17 +26,17 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
         return AnalysisType.ActivityDetection
 
     def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> list[any]:
-        preprocessed_frames = self.preprocess_frames_v3(window)
+        preprocessed_frames = self.__preprocess_frames(window)
         preprocessed_frames = preprocessed_frames.to(self.device)
 
         with torch.no_grad():
             outputs = self.model(preprocessed_frames)
-            # probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            predicted_class = torch.argmax(outputs, dim=1).item()
+            probabilities = torch.nn.functional.softmax(outputs, dim=1)
+            predicted_class = torch.argmax(probabilities, dim=1).item()
 
         return [predicted_class]
 
-    def preprocess_frames(self, frames, input_size=(112, 112)):
+    def __preprocess_frames_cpu(self, frames, input_size=(112, 112)):
         # Pre-allocate a NumPy array for all frames in CHW format
         num_frames = len(frames)
         processed_frames = np.empty((num_frames, 3, input_size[0], input_size[1]), dtype=np.float32)
@@ -67,7 +58,7 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
         # Convert the processed frames to a tensor and add batch dimension
         return torch.tensor(processed_frames).unsqueeze(0)  # Shape: [1, T, C, H, W]
 
-    def preprocess_frames_v3(self, frames, input_size=(112, 112)):
+    def __preprocess_frames(self, frames, input_size=(112, 112)):
         # Convert frames to a NumPy array and move them to the GPU
         frames = np.array([cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), input_size) for frame in frames],
                           dtype=np.float32)
