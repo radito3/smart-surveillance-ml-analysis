@@ -7,4 +7,4 @@ class Classifier(ABC):
 
     @abstractmethod
     def classify_as_suspicious(self, dtype: AnalysisType, vector: list[any]) -> bool:
-        pass
+        raise NotImplementedError

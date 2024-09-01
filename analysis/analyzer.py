@@ -6,11 +6,11 @@ class BaseAnalyzer(ABC):
 
     @abstractmethod
     def analysis_type(self) -> AnalysisType:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def analyze(self, payload: any, *args, **kwargs) -> list[any]:
-        raise AssertionError("abstract class method called")
+        raise NotImplementedError
 
     def __call__(self, payload: any, *args, **kwargs) -> list[any]:
         return self.analyze(payload, *args, **kwargs)

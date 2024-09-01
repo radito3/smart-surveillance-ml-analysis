@@ -33,8 +33,10 @@ class GraphNetWithSAGPooling(torch.nn.Module):
 
 class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
     def __init__(self,
-                 node_features,  # Depending on the number of features per node (e.g. bbox + velocity + direction)
-                 hidden_dim):  # Experiment with 16, 32 and 64
+                 node_features: int,  # Depending on the number of features per node (e.g. bbox + velocity + direction)
+                 hidden_dim: int,  # Experiment with 16, 32 and 64
+                 window_size: int,
+                 window_step: int):
         torch.nn.Module.__init__(self)
 
         self.gnn = GraphNetWithSAGPooling(node_features, hidden_dim)
@@ -43,12 +45,13 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
         self.output_layer = nn.Linear(hidden_dim, 1)  # Outputting a single probability
 
-        self.window_size = 36  # 1.5 seconds of frames (at 24 fps)
-        self.window_step = 10  # every 10 frames move to a new window
+        self.window_size = window_size
+        self.window_step = window_step  # every N frames move to a new window
         self.prev_detections: list[torch.Tensor] = []
         self.yolo_buffer = []
         self.pose_buffer = []
         self.velocities = {}
+        self.activities = None
 
     def forward(self, graph_data_sequences):
         # Assuming graph_data_sequences is a list of graph data for each time step
@@ -64,9 +67,12 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
     @torch.no_grad()
     def classify_as_suspicious(self, dtype: AnalysisType, vector: list[any]) -> bool:
-        if len(self.yolo_buffer) < self.window_size or len(self.pose_buffer) < self.window_size:
+        if (len(self.yolo_buffer) < self.window_size
+                or len(self.pose_buffer) < self.window_size
+                or self.activities is None):
             self.yolo_buffer.append(vector) if dtype == AnalysisType.PersonDetection else None
             self.pose_buffer.append(vector) if dtype == AnalysisType.PoseEstimation else None
+            self.activities = vector if dtype == AnalysisType.ActivityDetection else None
             return False
 
         graph_data_sequences = [self._create_graph(yolo_results, pose_results) for yolo_results, pose_results in
@@ -74,6 +80,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
         self.yolo_buffer = self.yolo_buffer[self.window_step:]
         self.pose_buffer = self.pose_buffer[self.window_step:]
+        self.activities = None
 
         predictions: torch.Tensor = self.forward(graph_data_sequences)
         print(f"predictions: {predictions}")
@@ -95,6 +102,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
          - velocity
          - average velocity
          - body position - standing, sitting, laying
+         - activity
 
         The edges have a higher index if people are close together multiplied by if they are facing each other.
         """
@@ -116,6 +124,8 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
         body_positions = np.array([self._classify_position(keypoints) for keypoints in pose_results], dtype=np.float32)
 
+        activities = np.array(self.activities, dtype=np.float32).flatten()
+
         if len(yolo_results) > len(pose_results):
             for _ in range(len(yolo_results) - len(pose_results)):
                 orientations = np.append(orientations, 0)
@@ -127,10 +137,17 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
                 average_velocities = np.append(average_velocities, 0)
                 centroids_current = np.append(centroids_current, np.array([0, 0]))
 
+        if len(self.activities) < max(len(yolo_results), len(pose_results)):
+            for _ in range(max(len(yolo_results), len(pose_results)) - len(self.activities)):
+                activities = np.append(activities, -1)
+        if len(self.activities) > max(len(yolo_results), len(pose_results)):
+            activities = np.delete(activities, len(activities) - 1)
+
         # Normalize the features using techniques such as Min-Max Scaling or Z-Score Normalization
         # to ensure all input features contribute equally?
         features = np.hstack((body_positions.reshape(-1, 1), velocities.reshape(-1, 1),
-                              average_velocities.reshape(-1, 1), orientations.reshape(-1, 1)))
+                              average_velocities.reshape(-1, 1), orientations.reshape(-1, 1),
+                              activities.reshape(-1, 1)))
 
         # Define edges based on proximity and relative orientation
         edges = []

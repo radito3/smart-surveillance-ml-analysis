@@ -6,19 +6,22 @@ from .analyzer import BaseAnalyzer
 
 class VideoBufferAnalyzer(BaseAnalyzer):
 
-    # TODO: how to do a sliding window?
-    def __init__(self, fps: int, window_size: timedelta):
+    def __init__(self, fps: int, window_size: timedelta, window_step: int):
         self._num_frames: int = int(fps * window_size.total_seconds())
-        self._buffer: list[cv2.typing.MatLike] = []
+        self._buffer: list[any] = []
+        self._window_step = window_step
 
     def analyze(self, frame: cv2.typing.MatLike, *args, **kwargs) -> list[any]:
         if len(self._buffer) < self._num_frames:
-            self._buffer.append(frame)
+            self._buffer.append(self.buffer_hook(frame))
             return []
         result = self.analyze_video_window(self._buffer)
-        self._buffer.clear()
+        self._buffer = self._buffer[self._window_step:]
         return result
 
+    def buffer_hook(self, frame: cv2.typing.MatLike) -> any:
+        return frame
+
     @abstractmethod
-    def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> list[any]:
+    def analyze_video_window(self, window: list[any]) -> list[any]:
         pass

@@ -8,8 +8,10 @@ from datetime import timedelta
 import numpy as np
 import torch
 
-from analysis.activity.activity_recon import ActivityRecognitionAnalyzer
+from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
+from analysis.activity.resnet18_3d import ActivityRecognitionAnalyzer
 from analysis.analyzer import BaseAnalyzer
+from analysis.analyzer_with_cache_aside import CacheAsideAnalyzer
 from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
 from classification.classifier import Classifier
 from analysis.types import AnalysisType
@@ -58,16 +60,14 @@ if __name__ == '__main__':
     w, h, fps = (int(video_source.get(x)) for x in [cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS])
     print(f"width: {w}, height: {h}, fps: {fps}")  # debug only
 
-    frame_receiver, frame_sender = mp.Pipe(duplex=False)
-    sink_receiver, sink_sender = mp.Pipe(duplex=False)
-
     # TODO: decide which analysis components to use
-    # analyzers: list[BaseAnalyzer] = [HumanObjectInteractionAnalyzer(ObjectDetector()), PoseDetector(),
-    #                                  OpticalFlowAnalyzer(), TemporalDifferenceAnalyzer(),
-    #                                  ActivityRecognitionAnalyzer(fps, timedelta(seconds=3))]
-    analyzers: list[BaseAnalyzer] = [ObjectDetector(), PoseDetector()]
+    cacheablePeopleDetector = CacheAsideAnalyzer(ObjectDetector(), cache_life=1)
+    analyzers: list[BaseAnalyzer] = [cacheablePeopleDetector, PoseDetector(),
+                                     MultiPersonActivityRecognitionAnalyzer(cacheablePeopleDetector, fps,
+                                                                            timedelta(seconds=1.5), 20)]
 
     pipes: list[tuple[cn.Connection, cn.Connection]] = [mp.Pipe(duplex=False) for _ in analyzers]
+    sink_receiver, sink_sender = mp.Pipe(duplex=False)
 
     sink_lock: mp.Lock = mp.Lock()
     processes: list[mp.Process] = [mp.Process(target=analyzer_wrapper, args=(analyzer, src, sink_sender, sink_lock,))
@@ -75,22 +75,18 @@ if __name__ == '__main__':
     [process.start() for process in processes]
 
     # TODO: decide which classifier to use
-    classifier = GraphBasedLSTMClassifier(4, 16)
+    classifier = GraphBasedLSTMClassifier(node_features=5, hidden_dim=16, window_size=int(fps*1.5), window_step=20)
     classifier.to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
     classifier.eval()
-    # classifier: Classifier = SimplePresenceClassifier()
 
     classifier_process = mp.Process(target=sink, args=(classifier, sink_receiver,))
     classifier_process.start()
 
     read_attempts: int = 3
-    total_frames = 48
+    total_frames = fps*3
     frames = 0
 
-    # through some experiments, it takes a little over 5 seconds for YOLO to process 24 frames
-    # this is with pure python, running on CPU
-    # for a real-time scenario, this would really lag behind
-    # GPU acceleration, Nuitka compilation and/or other optimizations should be considered
+    # consider GPU acceleration, Nuitka compilation and/or other optimizations
     while video_source.isOpened() and frames < total_frames:
         ok, frame = video_source.read()  # network I/O
         if not ok and read_attempts > 0:

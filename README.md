@@ -31,6 +31,7 @@ ML Analysis pipeline for the Smart Surveillance System
  - move anonymization and recorder packages out of this repo
  - keep the ID of the object (person) that is perceived as suspicious
 throughout the ML pipeline and add a red bounding box in the dashboard video feed if so OR just display a warning in the camera scene
+ - write about the tracking algorithms used in YOLO
  - [variable input size for neural network](https://stats.stackexchange.com/a/138760)
  - [Comparative Analysis of OpenPose, PoseNet, and MoveNet](https://iieta.org/journals/ts/paper/10.18280/ts.390111)
  - write about the [RTMO](https://arxiv.org/pdf/2312.07526) model; [additional info](https://github.com/open-mmlab/mmpose/tree/main/projects/rtmo)
