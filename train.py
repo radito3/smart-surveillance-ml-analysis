@@ -11,6 +11,8 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
+from sklearn.metrics import recall_score, f1_score, roc_auc_score
+
 
 from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
 
@@ -34,24 +36,6 @@ classes = ('T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
 print('Training set has {} instances'.format(len(training_set)))
 print('Validation set has {} instances'.format(len(validation_set)))
 
-
-loss_fn = torch.nn.BCEWithLogitsLoss()
-
-# NB: Loss functions expect data in batches, so we're creating batches of 4
-# Represents the model's confidence in each of the 10 classes for a given input
-dummy_outputs = torch.rand(4, 10)
-# Represents the correct class among the 10 being tested
-dummy_labels = torch.tensor([1, 5, 3, 7])
-
-print(dummy_outputs)
-print(dummy_labels)
-
-loss = loss_fn(dummy_outputs, dummy_labels)
-print('Total loss for this batch: {}'.format(loss.item()))
-
-# consider precision, recall, F1-score, and ROC-AUC for metrics
-# model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-
 hyperparams = {
     'hidden_dim': [16, 32, 64],
     'pooling_channels': [16, 32, 64],
@@ -60,10 +44,9 @@ hyperparams = {
     'lstm_layers': [1, 2]
 }
 
-model = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=10)
-
-# Optimizers specified in the torch.optim package
-optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+model = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=12)
+optimizer = torch.optim.Adam(model.parameters())
+loss_fn = torch.nn.BCELoss()
 
 
 def train_one_epoch(epoch_index, tb_writer):
@@ -74,24 +57,21 @@ def train_one_epoch(epoch_index, tb_writer):
     # iter(training_loader) so that we can track the batch
     # index and do some intra-epoch reporting
     for i, data in enumerate(training_loader):
-        # Every data instance is an input + label pair
         inputs, labels = data
-
-        # Zero your gradients for every batch!
         optimizer.zero_grad()
-
-        # Make predictions for this batch
         outputs = model(inputs)
-
-        # Compute the loss and its gradients
         loss = loss_fn(outputs, labels)
         loss.backward()
-
         # Adjust learning weights
         optimizer.step()
-
-        # Gather data and report
         running_loss += loss.item()
+        # Assuming you have true labels (y_true) and predicted probabilities (y_pred_probs)
+        y_pred = (outputs >= 0.5).astype(int)
+
+        recall = recall_score(y_true, y_pred)
+        f1 = f1_score(y_true, y_pred)
+        roc_auc = roc_auc_score(y_true, outputs)
+
         if i % 1000 == 999:
             last_loss = running_loss / 1000  # loss per batch
             print('  batch {} loss: {}'.format(i + 1, last_loss))

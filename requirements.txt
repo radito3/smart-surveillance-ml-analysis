@@ -1,7 +1,9 @@
 # h5py==3.11.0 -- this doesn't exist for aarch64 .....
-numpy==1.26.4
-opencv-python==4.9.0.80
-rtmlib==0.0.11
+numpy~=1.26.4
+opencv-python~=4.9.0.80
+rtmlib~=0.0.11
 ultralytics~=8.2.74
 torch~=2.4.0
 torchvision~=0.19.0
+scikit-image~=0.24.0
+scikit-learn~=1.5.1

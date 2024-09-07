@@ -36,6 +36,7 @@ ML Analysis pipeline for the Smart Surveillance System
  - write about two-stream convolutional networks
  - write about nvidia containers and container runtime plugin, k8s node plugin
  - might write about improvements in [YOLOv9](https://learnopencv.com/yolov9-advancing-the-yolo-legacy/) and YOLOv10
+ - write about training loss functions, optimizers (SGD, Adam) and metrics (accuracy, precision, recall, F1-score, ROC-AUC)
 
 ## Miscellaneous 
  - Objects interaction https://arxiv.org/pdf/1612.00222
