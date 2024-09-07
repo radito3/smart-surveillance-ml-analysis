@@ -9,11 +9,10 @@
 import torch
 import torchvision
 import torchvision.transforms as transforms
-
-# PyTorch TensorBoard support
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 
+from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
 
 transform = transforms.Compose(
     [transforms.ToTensor(),
@@ -51,7 +50,17 @@ loss = loss_fn(dummy_outputs, dummy_labels)
 print('Total loss for this batch: {}'.format(loss.item()))
 
 # consider precision, recall, F1-score, and ROC-AUC for metrics
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+# model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+hyperparams = {
+    'hidden_dim': [16, 32, 64],
+    'pooling_channels': [16, 32, 64],
+    'pooling_ratio': [0.8, 0.6],
+    'global_pool_type': ['mean', 'max'],
+    'lstm_layers': [1, 2]
+}
+
+model = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=10)
 
 # Optimizers specified in the torch.optim package
 optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)

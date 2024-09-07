@@ -4,10 +4,8 @@ ML Analysis pipeline for the Smart Surveillance System
 ## Dependencies
  * Python 3.9+
  * NumPy
- * Scikit-learn
  * Ultralytics
  * OpenCV
- * Keras
  * PyTorch
  * PyTorch Geometric
  * [rtmlib](https://github.com/Tau-J/rtmlib)
@@ -16,7 +14,6 @@ ML Analysis pipeline for the Smart Surveillance System
 ## Environment
  * YOLO_MODEL=yolov10m.pt
  * RTMO_MODEL_URL=[RTMO-M](https://download.openmmlab.com/mmpose/v1/projects/rtmo/onnx_sdk/rtmo-m_16xb16-600e_body7-640x640-39e78cc4_20231211.zip)
- * KERAS_BACKEND=tensorflow
 
 ## changes from the original idea
  - switch OpenPose to RTMO/YOLO-pose because OpenPose is really old, outdated and unsupported
@@ -27,10 +24,6 @@ ML Analysis pipeline for the Smart Surveillance System
 
 ## TODO
  - ensure all models are on the GPU if possible
- - consider compiling the models with tf.compile()
- - move anonymization and recorder packages out of this repo
- - keep the ID of the object (person) that is perceived as suspicious
-throughout the ML pipeline and add a red bounding box in the dashboard video feed if so OR just display a warning in the camera scene
  - write about the tracking algorithms used in YOLO
  - [variable input size for neural network](https://stats.stackexchange.com/a/138760)
  - [Comparative Analysis of OpenPose, PoseNet, and MoveNet](https://iieta.org/journals/ts/paper/10.18280/ts.390111)
@@ -43,7 +36,6 @@ throughout the ML pipeline and add a red bounding box in the dashboard video fee
  - write about two-stream convolutional networks
  - write about nvidia containers and container runtime plugin, k8s node plugin
  - might write about improvements in [YOLOv9](https://learnopencv.com/yolov9-advancing-the-yolo-legacy/) and YOLOv10
- - https://gist.github.com/dariodip/4e0133eaa8733e4206ccdb48e7af6a90
 
 ## Miscellaneous 
  - Objects interaction https://arxiv.org/pdf/1612.00222

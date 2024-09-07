@@ -10,39 +10,39 @@ from classification.classifier import Classifier
 
 
 class GraphNetWithSAGPooling(torch.nn.Module):
-    def __init__(self, node_features, hidden_dim):
+    def __init__(self, node_features, hidden_dim, pooling_channels=16, pooling_ratio=0.8, global_pool_type='mean'):
         super(GraphNetWithSAGPooling, self).__init__()
-        self.conv1 = GCNConv(node_features, 16)  # Experiment with 32 and maybe even 64 channels
+        self.conv1 = GCNConv(node_features, pooling_channels)
         # Self-Attention Graph Pooling
-        self.filter_pool = SAGPooling(16, ratio=0.8)  # Experiment with different retention ratios (0.6, 0.5)
-        self.conv2 = GCNConv(16, hidden_dim)
-        # TODO: try out global_max_pool as well
-        self.global_pool = global_mean_pool  # Ensures a fixed-size output
-        # self.global_pool = global_max_pool
+        self.filter_pool = SAGPooling(pooling_channels, ratio=pooling_ratio)
+        self.conv2 = GCNConv(pooling_channels, hidden_dim)
+        # Ensures a fixed-size output
+        self.global_pool = global_mean_pool if global_pool_type == 'mean' else global_max_pool
 
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
         x = torch.relu(self.conv1(x, edge_index))
-        # TODO: is the global mean pooling necessary if we are passing the batch vector to the SAG pooling layer?
-        x, edge_index, _, batch, _, _ = self.filter_pool(x, edge_index, None, batch)  # SAGPooling applied
+        x, edge_index, _, batch, _, _ = self.filter_pool(x, edge_index, None, batch)
         x = torch.relu(self.conv2(x, edge_index))
-        # print(f"batch: {batch}")
-        x = self.global_pool(x, batch)  # Global pool to enforce a fixed-sized output
+        x = self.global_pool(x, batch)  # Enforce a fixed-sized output
         return x
 
 
 class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
     def __init__(self,
-                 node_features: int,  # Depending on the number of features per node (e.g. bbox + velocity + direction)
-                 hidden_dim: int,  # Experiment with 16, 32 and 64
+                 node_features: int,
                  window_size: int,
-                 window_step: int):
+                 window_step: int,
+                 hidden_dim=16,
+                 pooling_channels=16,
+                 pooling_ratio=0.8,
+                 global_pool_type='mean',
+                 lstm_layers=1):
         torch.nn.Module.__init__(self)
 
-        self.gnn = GraphNetWithSAGPooling(node_features, hidden_dim)
-        # TODO: experiment with the following multi-layer LSTM architecture as well:
-        #  nn.LSTM(hidden_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.2)
-        self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
+        self.gnn = GraphNetWithSAGPooling(node_features, hidden_dim, pooling_channels, pooling_ratio, global_pool_type)
+        self.lstm = nn.LSTM(hidden_dim, hidden_dim, num_layers=lstm_layers, batch_first=True,
+                            dropout=0.2 if lstm_layers > 1 else 0)
         self.output_layer = nn.Linear(hidden_dim, 1)  # Outputting a single probability
 
         self.window_size = window_size
@@ -54,26 +54,25 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         self.activities = None
 
     def forward(self, graph_data_sequences):
-        # Assuming graph_data_sequences is a list of graph data for each time step
+        # graph_data_sequences is a list of graph data for each time step
         embeddings = []
         for data in graph_data_sequences:
-            graph_embedding = self.gnn(data)  # Obtain embedding for each graph
+            graph_embedding = self.gnn(data)
             embeddings.append(graph_embedding.unsqueeze(1))  # Add sequence dimension
-        embeddings = torch.cat(embeddings, dim=1)  # Shape: (batch_size, sequence_length, hidden_dim)
+        embeddings = torch.cat(embeddings, dim=1)  # Shape: (batch_size, sequence_length, features)
 
         lstm_out, _ = self.lstm(embeddings)
         predictions = self.output_layer(lstm_out[:, -1, :])  # Classify based on the output of the last time step
         return torch.sigmoid(predictions)
 
-    @torch.no_grad()
-    def classify_as_suspicious(self, dtype: AnalysisType, vector: list[any]) -> bool:
+    def classify_as_suspicious(self, dtype: AnalysisType, vector: list[any]) -> float:
         if (len(self.yolo_buffer) < self.window_size
                 or len(self.pose_buffer) < self.window_size
                 or self.activities is None):
             self.yolo_buffer.append(vector) if dtype == AnalysisType.PersonDetection else None
             self.pose_buffer.append(vector) if dtype == AnalysisType.PoseEstimation else None
             self.activities = vector if dtype == AnalysisType.ActivityDetection else None
-            return False
+            return 0
 
         graph_data_sequences = [self._create_graph(yolo_results, pose_results) for yolo_results, pose_results in
                                 zip(self.yolo_buffer, self.pose_buffer)]
@@ -83,10 +82,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         self.activities = None
 
         predictions: torch.Tensor = self.forward(graph_data_sequences)
-        print(f"predictions: {predictions}")
-        # greater-than or equal
-        result = torch.ge(torch.flatten(predictions), 0.5).bool()  # experiment and tune this threshold value
-        return bool(result[0]) if len(result) > 0 else False
+        return torch.flatten(predictions).item()
 
     def _create_graph(self, yolo_results, pose_results):
         nodes, edges = self._extract_graph(yolo_results, pose_results)
@@ -102,7 +98,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
          - velocity
          - average velocity
          - body position - standing, sitting, laying
-         - activity
+         - activity index from Kinetics-400
 
         The edges have a higher index if people are close together multiplied by if they are facing each other.
         """

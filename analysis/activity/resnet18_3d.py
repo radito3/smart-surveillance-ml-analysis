@@ -14,9 +14,9 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
     def __init__(self, fps: int, window_size: timedelta, window_step: int):
         super().__init__(fps, window_size, window_step)
         self.model = r3d_18(weights=R3D_18_Weights.KINETICS400_V1)
-        self.model.eval()  # Set the model to evaluation mode
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
+        self.model.eval()  # Set the model to evaluation mode
         # Load the class labels
         with open('analysis/activity/kinetics_400_labels.csv', 'r', newline='') as csvfile:
             reader = csv.DictReader(csvfile)
@@ -27,7 +27,6 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
 
     def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> list[any]:
         preprocessed_frames = self.__preprocess_frames(window)
-        preprocessed_frames = preprocessed_frames.to(self.device)
 
         with torch.no_grad():
             outputs = self.model(preprocessed_frames)

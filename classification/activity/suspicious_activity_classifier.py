@@ -8,11 +8,11 @@ class SuspiciousActivityClassifier(Classifier):
         # mark specific activities as suspicious
         self.suspicious_activities_indices = suspicious_activities_indices
 
-    def classify_as_suspicious(self, dtype: AnalysisType,  vector: list[any]) -> bool:
+    def classify_as_suspicious(self, dtype: AnalysisType,  vector: list[any]) -> float:
         if dtype != AnalysisType.ActivityDetection or len(vector) == 0:
-            return False
+            return 0
 
         for idx in self.suspicious_activities_indices:
-            if len(vector) > idx and vector[idx] == 1:
-                return True
-        return False
+            if vector[0] == idx:
+                return 1
+        return 0
