@@ -6,27 +6,44 @@
 # train 100 epochs, check accuracy, repeat training until the difference in accuracy between validation iterations
 #    is less than a threshold
 
+import cv2
+import numpy as np
 import torch
 import torchvision
-import torchvision.transforms as transforms
 from torch.utils.tensorboard import SummaryWriter
-from datetime import datetime
+from torch.utils.data import DataLoader, Dataset
+from datetime import datetime, timedelta
 from sklearn.metrics import recall_score, f1_score, roc_auc_score
 
-
+from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
+from analysis.analyzer_with_cache_aside import CacheAsideAnalyzer
+from analysis.object_detection.detector import ObjectDetector
+from analysis.pose_detection.pose_detector import PoseDetector
 from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
-
-transform = transforms.Compose(
-    [transforms.ToTensor(),
-     transforms.Normalize((0.5,), (0.5,))])
+from classification.classifier import Classifier
 
 # Create datasets for training & validation, download if necessary
-training_set = torchvision.datasets.FashionMNIST('./data', train=True, transform=transform, download=True)
-validation_set = torchvision.datasets.FashionMNIST('./data', train=False, transform=transform, download=True)
+training_set = torchvision.datasets.FashionMNIST('./data', train=True, download=True)
+validation_set = torchvision.datasets.FashionMNIST('./data', train=False, download=True)
+
+
+class VideoDataset(Dataset):
+    def __init__(self, video_paths, labels):
+        self.video_paths = video_paths
+        self.labels = labels
+
+    def __len__(self):
+        return len(self.video_paths)
+
+    def __getitem__(self, idx):
+        video_path = self.video_paths[idx]
+        label = self.labels[idx]
+        return video_path, label
+
 
 # Create data loaders for our datasets; shuffle for training, not for validation
-training_loader = torch.utils.data.DataLoader(training_set, batch_size=4, shuffle=True)
-validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=4, shuffle=False)
+training_loader = DataLoader(training_set, batch_size=4, shuffle=True)
+validation_loader = DataLoader(validation_set, batch_size=4, shuffle=False)
 
 # Class labels
 classes = ('T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
@@ -45,8 +62,46 @@ hyperparams = {
 }
 
 model = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=12)
+model.train()
 optimizer = torch.optim.Adam(model.parameters())
 loss_fn = torch.nn.BCELoss()
+
+
+def aggregate_probabilities(probs, method='mean', threshold=0.5) -> float:
+    if method == 'mean':
+        return np.mean(probs)
+    elif method == 'median':
+        return np.median(probs)
+    elif method == 'majority':
+        preds = (probs > threshold).astype(int)
+        return np.sum(preds) > (len(probs) / 2)
+    else:
+        raise ValueError(f"Unknown aggregation method: {method}")
+
+
+def run_pipeline(video_url: str, classifier: Classifier) -> float:
+    video_source = cv2.VideoCapture(video_url, cv2.CAP_FFMPEG)
+    assert video_source.isOpened(), "Error opening video"
+    fps = video_source.get(cv2.CAP_PROP_FPS)
+
+    cacheablePeopleDetector = CacheAsideAnalyzer(ObjectDetector(), cache_life=1)
+    analyzers = [cacheablePeopleDetector, PoseDetector(),
+                 MultiPersonActivityRecognitionAnalyzer(cacheablePeopleDetector, int(fps),
+                                                        timedelta(seconds=2), int(fps / 2))]
+
+    predictions = []
+    while video_source.isOpened():
+        ok, frame = video_source.read()
+        if not ok:
+            break
+        # sequential processing will be very slow, but it's okay for training
+        results = [(analyzer.analysis_type(), analyzer.analyze(frame)) for analyzer in analyzers]
+        for dtype, data in results:
+            conf = classifier.classify_as_suspicious(dtype, data)
+            if conf != 0:
+                predictions.append(data)
+    video_source.release()
+    return aggregate_probabilities(predictions)
 
 
 def train_one_epoch(epoch_index, tb_writer):
@@ -59,7 +114,7 @@ def train_one_epoch(epoch_index, tb_writer):
     for i, data in enumerate(training_loader):
         inputs, labels = data
         optimizer.zero_grad()
-        outputs = model(inputs)
+        outputs = run_pipeline(inputs, model)
         loss = loss_fn(outputs, labels)
         loss.backward()
         # Adjust learning weights

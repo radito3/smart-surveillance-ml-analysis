@@ -43,7 +43,6 @@ def main(video_url: str, analyzers: list[BaseAnalyzer], classifier: Classifier) 
     assert video_source.isOpened(), "Error opening video stream"
 
     def close_video_capture(signum, frame):
-        global video_source
         video_source.release()
 
     signal.signal(signal.SIGINT, close_video_capture)

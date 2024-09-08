@@ -30,13 +30,16 @@ ML Analysis pipeline for the Smart Surveillance System
  - write about the [RTMO](https://arxiv.org/pdf/2312.07526) model; [additional info](https://github.com/open-mmlab/mmpose/tree/main/projects/rtmo)
  - write a comparison between [YOLO-pose](https://docs.ultralytics.com/tasks/pose) (two-stage top-down detector) and RTMO (one-stage detector)
  - write about ONNX Runtime
- - write about [MoviNet](https://arxiv.org/pdf/2103.11511) as an alternative to ResNet18_3D
+ - write about [MoviNet](https://arxiv.org/pdf/2103.11511) and [MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/guide) as alternatives to ResNet18_3D
+ - write about [MediaPipe body pose landmarks](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker)
+ - write about [MediaPipe models](https://chuoling.github.io/mediapipe/solutions/holistic.html)
  - write about [LSTM vs Transformers](https://deep-learning-mit.github.io/staging/blog/2023/time-series-lstm-transformer/)
  - write about [Visual Transformers (ViT)](https://arxiv.org/pdf/2102.05095)
  - write about two-stream convolutional networks
  - write about nvidia containers and container runtime plugin, k8s node plugin
  - might write about improvements in [YOLOv9](https://learnopencv.com/yolov9-advancing-the-yolo-legacy/) and YOLOv10
  - write about training loss functions, optimizers (SGD, Adam) and metrics (accuracy, precision, recall, F1-score, ROC-AUC)
+ - useful info about general principles of [HAR](https://www.sciencedirect.com/science/article/pii/S187705092200045X?ref=cra_js_challenge&fr=RR-1)
 
 ## Miscellaneous 
  - Objects interaction https://arxiv.org/pdf/1612.00222
