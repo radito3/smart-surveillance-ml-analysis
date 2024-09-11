@@ -29,7 +29,16 @@ def analyzer_wrapper(analyzer: BaseAnalyzer, frame_src: cn.Connection, sink: cn.
             sink.send((analyzer.analysis_type(), feature_vector))
 
 
-def sink(classifier: Classifier, sink_conn: cn.Connection) -> None:
+def sink(classifier_: Classifier, sink_conn: cn.Connection) -> None:
+    # process serialization issues again...
+    device = torch.device('cpu')
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    elif torch.backends.mps.is_available():
+        device = torch.device('mps')
+    classifier = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=10)
+    classifier.to(device)
+    classifier.eval()
     for dtype, data in ConnIterator[tuple[AnalysisType, Any]](sink_conn):
         with torch.no_grad():
             conf = classifier.classify_as_suspicious(dtype, data)
@@ -57,7 +66,7 @@ def main(video_url: str, analyzers: list[BaseAnalyzer], classifier: Classifier) 
                                    for analyzer, (src, _) in zip(analyzers, pipes)]
     [process.start() for process in processes]
 
-    classifier_process = mp.Process(target=sink, args=(classifier, sink_receiver,))
+    classifier_process = mp.Process(target=sink, args=(None, sink_receiver,))
     classifier_process.start()
 
     # this introduces an upper bound to frame rate
@@ -105,8 +114,13 @@ if __name__ == '__main__':
                                      MultiPersonActivityRecognitionAnalyzer(cacheablePeopleDetector, 24,
                                                                             timedelta(seconds=2), 12)]
 
-    classifier = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=10)
-    classifier.to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-    classifier.eval()
+    # device = torch.device('cpu')
+    # if torch.cuda.is_available():
+    #     device = torch.device('cuda')
+    # elif torch.backends.mps.is_available():
+    #     device = torch.device('mps')
+    # classifier = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=10)
+    # classifier.to(device)
+    # classifier.eval()
 
-    main("video.MOV", analyzers, classifier)
+    main("video.MOV", analyzers, None)

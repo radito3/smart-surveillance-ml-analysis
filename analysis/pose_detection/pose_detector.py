@@ -19,6 +19,7 @@ class PoseDetector(SingleFrameAnalyzer):
     def analyze(self, frame: cv2.typing.MatLike, *args, **kwargs) -> list[any]:
         if self.model is None:
             # lazy initialization is done because the RTMO model is not serializable and can't be sent to a child process
+            # these bastards do not support Apple MPS... Only CUDA
             self.model = RTMO(os.environ["RTMO_MODEL_URL"], device='cuda' if torch.cuda.is_available() else 'cpu')
 
         # top-level dimension (keypoints/scores[N]) - person N

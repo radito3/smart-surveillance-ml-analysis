@@ -1,5 +1,6 @@
 import os
 import cv2.typing
+import torch
 import ultralytics.engine.results
 from ultralytics.engine.model import Model
 from ultralytics.utils.plotting import Annotator, colors
@@ -13,22 +14,30 @@ class ObjectDetector(SingleFrameAnalyzer):
 
     def __init__(self):
         self.model = None
+        self.device = torch.device('cpu')
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda')
+        elif torch.backends.mps.is_available():
+            self.device = torch.device('mps')
 
     def analysis_type(self) -> AnalysisType:
         return AnalysisType.PersonDetection
 
     def analyze(self, frame: cv2.typing.MatLike, *args, **kwargs) -> list[any]:
         results = self.detect(frame, True)
+        # is it necessary for copying to CPU memory?
         boxes: ultralytics.engine.results.Boxes = results.boxes.cpu()  # bounding boxes
         if len(boxes.data) == 0:
             return []
 
         return [*zip(boxes.xyxy, boxes.id, boxes.conf)]
 
+    @torch.no_grad()
     def detect(self, frame: cv2.typing.MatLike, people_only: bool = False) -> ultralytics.engine.results.Results:
         if self.model is None:
             # lazy initialization, due to serialization issues
             self.model = YOLO(os.environ["YOLO_MODEL"])
+            self.model.to(self.device)
 
         if people_only:
             classes = [0]  # class 0 is 'person'

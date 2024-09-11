@@ -13,10 +13,12 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
 
     def __init__(self, fps: int, window_size: timedelta, window_step: int):
         super().__init__(fps, window_size, window_step)
-        self.model = r3d_18(weights=R3D_18_Weights.KINETICS400_V1)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
-        self.model.eval()  # Set the model to evaluation mode
+        self.model = None
+        self.device = torch.device('cpu')
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda')
+        elif torch.backends.mps.is_available():
+            self.device = torch.device('mps')
         # Load the class labels
         with open('analysis/activity/kinetics_400_labels.csv', 'r', newline='') as csvfile:
             reader = csv.DictReader(csvfile)
@@ -26,11 +28,16 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
         return AnalysisType.ActivityDetection
 
     def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> list[any]:
+        if self.model is None:
+            self.model = r3d_18(weights=R3D_18_Weights.KINETICS400_V1)
+            self.model.to(self.device)
+
         preprocessed_frames = self.__preprocess_frames(window)
 
         with torch.no_grad():
             outputs = self.model(preprocessed_frames)
             probabilities = torch.nn.functional.softmax(outputs, dim=1)
+            # should this be copied to CPU memory?
             predicted_class = torch.argmax(probabilities, dim=1).item()
 
         return [predicted_class]
@@ -57,11 +64,11 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
         # Convert the processed frames to a tensor and add batch dimension
         return torch.tensor(processed_frames).unsqueeze(0)  # Shape: [1, T, C, H, W]
 
-    def __preprocess_frames(self, frames, input_size=(112, 112)):
+    def __preprocess_frames(self, in_frames, input_size=(112, 112)):
         # Convert frames to a NumPy array and move them to the GPU
-        frames = np.array([cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), input_size) for frame in frames],
-                          dtype=np.float32)
-        frames = torch.tensor(frames).to(self.device)
+        np_frames = np.array([cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), input_size) for frame in in_frames],
+                             dtype=np.float32)
+        frames: torch.Tensor = torch.tensor(np_frames).to(self.device)
 
         # Normalize the frames (operating on GPU tensors)
         frames /= 255.0

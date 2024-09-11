@@ -57,6 +57,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         # graph_data_sequences is a list of graph data for each time step
         embeddings = []
         for data in graph_data_sequences:
+            data.to('mps')
             graph_embedding = self.gnn(data)
             embeddings.append(graph_embedding.unsqueeze(1))  # Add sequence dimension
         embeddings = torch.cat(embeddings, dim=1)  # Shape: (batch_size, sequence_length, features)
