@@ -2,6 +2,7 @@ import cv2
 import multiprocessing as mp
 import multiprocessing.connection as cn
 import os
+import time
 import signal
 from typing import Any
 from datetime import timedelta
@@ -48,9 +49,6 @@ def main(video_url: str, analyzers: list[BaseAnalyzer], classifier: Classifier) 
     signal.signal(signal.SIGINT, close_video_capture)
     signal.signal(signal.SIGTERM, close_video_capture)
 
-    w, h, fps = (int(video_source.get(x)) for x in [cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS])
-    print(f"width: {w}, height: {h}, fps: {fps}")  # debug only
-
     pipes: list[tuple[cn.Connection, cn.Connection]] = [mp.Pipe(duplex=False) for _ in analyzers]
     sink_receiver, sink_sender = mp.Pipe(duplex=False)
 
@@ -62,12 +60,23 @@ def main(video_url: str, analyzers: list[BaseAnalyzer], classifier: Classifier) 
     classifier_process = mp.Process(target=sink, args=(classifier, sink_receiver,))
     classifier_process.start()
 
+    # this introduces an upper bound to frame rate
+    # however, if the real-time fps is significantly lower than 24, this could lead to issues with analysis performance
+    # one mitigation technique is Frame Duplication/Interpolation, but it can be costly
+    # for a 1080p @ 60 fps with h.264 encoding video source, a network throughput of at least 8-12 Mbps is required to
+    #  reliably transmit the video stream
+    target_fps: int = 24  # to ensure consistency between training and analysis
+    target_frame_interval: float = 1./target_fps
+    prev_timestamp: float = 0
     read_attempts: int = 3
-    total_frames = fps*2
+
+    # debug
+    total_frames = video_source.get(cv2.CAP_PROP_FPS)
     frames = 0
 
     # consider GPU acceleration, Nuitka compilation and/or other optimizations
     while video_source.isOpened() and frames < total_frames:
+        time_elapsed: float = time.time() - prev_timestamp
         ok, frame = video_source.read()  # network I/O
         if not ok and read_attempts > 0:
             read_attempts -= 1
@@ -76,7 +85,9 @@ def main(video_url: str, analyzers: list[BaseAnalyzer], classifier: Classifier) 
             break
         read_attempts = 3  # guard only non-transitive failures
 
-        [dest.send(frame) for _, dest in pipes]
+        if time_elapsed > target_frame_interval:
+            prev_timestamp = time.time()
+            [dest.send(frame) for _, dest in pipes]
         frames += 1
 
     # stop on camera disconnect
@@ -92,7 +103,7 @@ if __name__ == '__main__':
     cacheablePeopleDetector = CacheAsideAnalyzer(ObjectDetector(), cache_life=1)
     analyzers: list[BaseAnalyzer] = [cacheablePeopleDetector, PoseDetector(),
                                      MultiPersonActivityRecognitionAnalyzer(cacheablePeopleDetector, 24,
-                                                                            timedelta(seconds=2), 10)]
+                                                                            timedelta(seconds=2), 12)]
 
     classifier = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=10)
     classifier.to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))

@@ -6,6 +6,7 @@
 # train 100 epochs, check accuracy, repeat training until the difference in accuracy between validation iterations
 #    is less than a threshold
 
+import time
 import cv2
 import numpy as np
 import torch
@@ -82,24 +83,30 @@ def aggregate_probabilities(probs, method='mean', threshold=0.5) -> float:
 def run_pipeline(video_url: str, classifier: Classifier) -> float:
     video_source = cv2.VideoCapture(video_url, cv2.CAP_FFMPEG)
     assert video_source.isOpened(), "Error opening video"
-    fps = video_source.get(cv2.CAP_PROP_FPS)
+    target_fps: int = 24
+    target_frame_interval: float = 1./target_fps
+    prev_timestamp: float = 0
 
-    cacheablePeopleDetector = CacheAsideAnalyzer(ObjectDetector(), cache_life=1)
-    analyzers = [cacheablePeopleDetector, PoseDetector(),
-                 MultiPersonActivityRecognitionAnalyzer(cacheablePeopleDetector, int(fps),
-                                                        timedelta(seconds=2), int(fps / 2))]
+    cacheable_people_detector = CacheAsideAnalyzer(ObjectDetector(), cache_life=1)
+    analyzers = [cacheable_people_detector, PoseDetector(),
+                 MultiPersonActivityRecognitionAnalyzer(cacheable_people_detector, target_fps,
+                                                        timedelta(seconds=2), target_fps // 2)]
 
     predictions = []
     while video_source.isOpened():
+        time_elapsed: float = time.time() - prev_timestamp
         ok, frame = video_source.read()
         if not ok:
             break
-        # sequential processing will be very slow, but it's okay for training
-        results = [(analyzer.analysis_type(), analyzer.analyze(frame)) for analyzer in analyzers]
-        for dtype, data in results:
-            conf = classifier.classify_as_suspicious(dtype, data)
-            if conf != 0:
-                predictions.append(data)
+
+        if time_elapsed > target_frame_interval:
+            prev_timestamp = time.time()
+            # sequential processing will be very slow, but it's okay for training
+            results = [(analyzer.analysis_type(), analyzer.analyze(frame)) for analyzer in analyzers]
+            for dtype, data in results:
+                conf = classifier.classify_as_suspicious(dtype, data)
+                if conf != 0:
+                    predictions.append(data)
     video_source.release()
     return aggregate_probabilities(predictions)
 
