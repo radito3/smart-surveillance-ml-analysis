@@ -7,6 +7,7 @@ from torchvision.models.video import r3d_18, R3D_18_Weights
 
 from analysis.types import AnalysisType
 from analysis.video_buffer_analyzer import VideoBufferAnalyzer
+from util.device import get_device
 
 
 class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
@@ -14,11 +15,7 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
     def __init__(self, fps: int, window_size: timedelta, window_step: int):
         super().__init__(fps, window_size, window_step)
         self.model = None
-        self.device = torch.device('cpu')
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda')
-        elif torch.backends.mps.is_available():
-            self.device = torch.device('mps')
+        self.device = get_device()
         # Load the class labels
         with open('analysis/activity/kinetics_400_labels.csv', 'r', newline='') as csvfile:
             reader = csv.DictReader(csvfile)

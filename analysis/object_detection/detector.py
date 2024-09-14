@@ -8,17 +8,14 @@ from ultralytics import YOLO
 
 from analysis.single_frame_analyzer import SingleFrameAnalyzer
 from analysis.types import AnalysisType
+from util.device import get_device
 
 
 class ObjectDetector(SingleFrameAnalyzer):
 
     def __init__(self):
         self.model = None
-        self.device = torch.device('cpu')
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda')
-        elif torch.backends.mps.is_available():
-            self.device = torch.device('mps')
+        self.device = get_device()
 
     def analysis_type(self) -> AnalysisType:
         return AnalysisType.PersonDetection

@@ -68,18 +68,6 @@ optimizer = torch.optim.Adam(model.parameters())
 loss_fn = torch.nn.BCELoss()
 
 
-def aggregate_probabilities(probs, method='mean', threshold=0.5) -> float:
-    if method == 'mean':
-        return np.mean(probs)
-    elif method == 'median':
-        return np.median(probs)
-    elif method == 'majority':
-        preds = (probs > threshold).astype(int)
-        return np.sum(preds) > (len(probs) / 2)
-    else:
-        raise ValueError(f"Unknown aggregation method: {method}")
-
-
 def run_pipeline(video_url: str, classifier: Classifier) -> float:
     video_source = cv2.VideoCapture(video_url, cv2.CAP_FFMPEG)
     assert video_source.isOpened(), "Error opening video"
@@ -92,7 +80,7 @@ def run_pipeline(video_url: str, classifier: Classifier) -> float:
                  MultiPersonActivityRecognitionAnalyzer(cacheable_people_detector, target_fps,
                                                         timedelta(seconds=2), target_fps // 2)]
 
-    predictions = []
+    predictions: list[float] = []
     while video_source.isOpened():
         time_elapsed: float = time.time() - prev_timestamp
         ok, frame = video_source.read()
@@ -106,9 +94,9 @@ def run_pipeline(video_url: str, classifier: Classifier) -> float:
             for dtype, data in results:
                 conf = classifier.classify_as_suspicious(dtype, data)
                 if conf != 0:
-                    predictions.append(data)
+                    predictions.append(conf)
     video_source.release()
-    return aggregate_probabilities(predictions)
+    return np.mean(predictions)
 
 
 def train_one_epoch(epoch_index, tb_writer):

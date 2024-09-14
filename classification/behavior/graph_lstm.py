@@ -7,6 +7,7 @@ from itertools import zip_longest
 
 from analysis.types import AnalysisType
 from classification.classifier import Classifier
+from util.device import get_device
 
 
 class GraphNetWithSAGPooling(torch.nn.Module):
@@ -57,7 +58,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         # graph_data_sequences is a list of graph data for each time step
         embeddings = []
         for data in graph_data_sequences:
-            data.to('mps')
+            data.to(get_device())
             graph_embedding = self.gnn(data)
             embeddings.append(graph_embedding.unsqueeze(1))  # Add sequence dimension
         embeddings = torch.cat(embeddings, dim=1)  # Shape: (batch_size, sequence_length, features)
@@ -86,10 +87,10 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         return torch.flatten(predictions).item()
 
     def _create_graph(self, yolo_results, pose_results):
-        nodes, edges = self._extract_graph(yolo_results, pose_results)
+        nodes, edges, edge_weights = self._extract_graph(yolo_results, pose_results)
         return Data(x=torch.tensor(nodes, dtype=torch.float),
-                    edge_index=torch.tensor([(x, y) for x, y, _ in edges], dtype=torch.long).t().contiguous(),
-                    edge_attr=torch.tensor([weight for _, _, weight in edges], dtype=torch.float)
+                    edge_index=torch.tensor(edges, dtype=torch.long).t().contiguous(),
+                    edge_attr=torch.tensor(edge_weights, dtype=torch.float)
                     )
 
     def _extract_graph(self, yolo_results, pose_results):
@@ -148,6 +149,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
         # Define edges based on proximity and relative orientation
         edges = []
+        edge_weights = []
         for i in range(len(features)):
             for j in range(i + 1, len(features)):
                 distance = np.linalg.norm(centroids_current[i] - centroids_current[j])
@@ -156,11 +158,12 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
                 edge_weight = distance / relative_angle if relative_angle != 0 else distance
 
                 # make a complete (fully-connected) graph
-                edges.append((i, j, edge_weight))
-                edges.append((j, i, edge_weight))  # because the graph is undirected
+                edges.append((i, j))
+                edges.append((j, i))  # because the graph is undirected
+                edge_weights.append(edge_weight)
 
         self.prev_detections = detections
-        return features, edges
+        return features, edges, edge_weights
 
     @staticmethod
     def __contains_by_id(detections, track_id) -> bool:

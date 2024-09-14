@@ -20,6 +20,7 @@ from analysis.object_detection.detector import ObjectDetector
 from analysis.pose_detection.pose_detector import PoseDetector
 from util.connection_iterator import ConnIterator
 from util.receiver_lock import ReceiverLock
+from util.device import get_device
 
 
 def analyzer_wrapper(analyzer: BaseAnalyzer, frame_src: cn.Connection, sink: cn.Connection, sink_lock: mp.Lock) -> None:
@@ -31,13 +32,8 @@ def analyzer_wrapper(analyzer: BaseAnalyzer, frame_src: cn.Connection, sink: cn.
 
 def sink(classifier_: Classifier, sink_conn: cn.Connection) -> None:
     # process serialization issues again...
-    device = torch.device('cpu')
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-    elif torch.backends.mps.is_available():
-        device = torch.device('mps')
     classifier = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=10)
-    classifier.to(device)
+    classifier.to(get_device())
     classifier.eval()
     for dtype, data in ConnIterator[tuple[AnalysisType, Any]](sink_conn):
         with torch.no_grad():
@@ -114,13 +110,8 @@ if __name__ == '__main__':
                                      MultiPersonActivityRecognitionAnalyzer(cacheablePeopleDetector, 24,
                                                                             timedelta(seconds=2), 12)]
 
-    # device = torch.device('cpu')
-    # if torch.cuda.is_available():
-    #     device = torch.device('cuda')
-    # elif torch.backends.mps.is_available():
-    #     device = torch.device('mps')
     # classifier = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=10)
-    # classifier.to(device)
+    # classifier.to(get_device())
     # classifier.eval()
 
     main("video.MOV", analyzers, None)
