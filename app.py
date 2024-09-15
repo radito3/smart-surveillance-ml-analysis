@@ -31,8 +31,7 @@ def analyzer_wrapper(analyzer_factory, frame_src: Queue, sink: Queue) -> None:
             # print(f"analyser {analyzer.analysis_type().__str__()} writing to sink")
             sink.put((analyzer.analysis_type(), feature_vector))
             # print(f"analyser {analyzer.analysis_type().__str__()} written")
-    print(f"exiting analyser {analyzer.analysis_type().__str__()}")
-    analyzer.stop()
+    # print(f"exiting analyser {analyzer.analysis_type().__str__()}")
 
 
 def sink(classifier_factory, sink_queue: Queue) -> None:
@@ -44,7 +43,7 @@ def sink(classifier_factory, sink_queue: Queue) -> None:
             if conf != 0:  # experiment with threshold values
                 # send_notification('localhost:50051')
                 print(conf)
-    print("exiting classifier")
+    # print("exiting classifier")
 
 
 def main(video_url: str, analyzer_factories, classifier_factory) -> None:
@@ -52,7 +51,6 @@ def main(video_url: str, analyzer_factories, classifier_factory) -> None:
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
     video_source = cv2.VideoCapture(video_url, cv2.CAP_FFMPEG)
     assert video_source.isOpened(), "Error opening video stream"
-    print(int(video_source.get(cv2.CAP_PROP_FRAME_COUNT)))
 
     def close_video_capture(signum, frame):
         video_source.release()
@@ -77,13 +75,13 @@ def main(video_url: str, analyzer_factories, classifier_factory) -> None:
     #  reliably transmit the video stream
     target_fps: int = 24  # to ensure consistency between training and analysis
     target_frame_interval: float = 1./target_fps
-    print(f"target inference speed: {target_frame_interval * 1000}ms")
+    # print(f"target inference speed: {target_frame_interval * 1000}ms")
     prev_timestamp: float = 0
     read_attempts: int = 3
 
     # debug
     total_frames = video_source.get(cv2.CAP_PROP_FPS) * 2
-    print(f"total frames: {total_frames}")
+    # print(f"total frames: {total_frames}")
     frames = 0
 
     while video_source.isOpened() and frames < total_frames:
@@ -104,7 +102,6 @@ def main(video_url: str, analyzer_factories, classifier_factory) -> None:
             # print(f"sent {frames}")
             frames += 1
 
-    print("after loop")
     # stop on camera disconnect
     video_source.release()
 
@@ -115,7 +112,7 @@ def main(video_url: str, analyzer_factories, classifier_factory) -> None:
 
 
 if __name__ == '__main__':
-    cache_queue = Queue(maxsize=2)
+    cache_queue = Queue(maxsize=1)
 
     # create the analysers in thread-local storage, instead of on the main thread to avoid parameters corruption
     #  and race conditions
@@ -127,6 +124,8 @@ if __name__ == '__main__':
         return PoseDetector()
 
     def activity_recognition_factory() -> BaseAnalyzer:
+        # FIXME: I don't like the current implementation with the cache-aside analyser
+        # TODO: consider the kafka semantics
         return MultiPersonActivityRecognitionAnalyzer(CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection), 24, timedelta(seconds=2), 12)
 
     def classifier_factory() -> Classifier:
@@ -137,5 +136,8 @@ if __name__ == '__main__':
 
     # GPU:  10.90s user 7.52s system 89% cpu 20.645 total
     # GPU with sequential activity recon:  10.65s user 7.28s system 87% cpu 20.565 total
+    # GPU with threads:  11.26s user 7.69s system 96% cpu 19.716 total
     # CPU:  211.61s user 116.33s system 853% cpu 38.438 total
+    # turns out the processing issues were not because of the GPU but because of race conditions stemming from
+    # creating the models in the main thread and moving them to threads
     main("video.MOV", [people_detector_factory, pose_detector_factory, activity_recognition_factory], classifier_factory)
