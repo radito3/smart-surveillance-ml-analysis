@@ -13,6 +13,7 @@ class ObjectDetector(SingleFrameAnalyzer):
 
     def __init__(self):
         self.model = YOLO('yolov10m.pt').to(get_device())
+        self.model.compile() if torch.cuda.is_available() else None
 
     def analysis_type(self) -> AnalysisType:
         return AnalysisType.PersonDetection

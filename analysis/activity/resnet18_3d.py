@@ -16,6 +16,7 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
         super().__init__(fps, window_size, window_step)
         self.device = get_device()
         self.model = r3d_18(weights=R3D_18_Weights.KINETICS400_V1).to(self.device)
+        self.model.compile() if torch.cuda.is_available() else None
         # Load the class labels
         with open('analysis/activity/kinetics_400_labels.csv', 'r', newline='') as csvfile:
             reader = csv.DictReader(csvfile)

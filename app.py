@@ -25,17 +25,26 @@ from util.device import get_device
 def analyzer_wrapper(analyzer_factory, frame_src: Queue, sink: Queue) -> None:
     analyzer: BaseAnalyzer = analyzer_factory()
     for frame in QueueIterator[cv2.typing.MatLike](frame_src):
+        # print(f"processing frame from {analyzer.analysis_type().__str__()}")
         feature_vector = analyzer.analyze(frame)
-        sink.put((analyzer.analysis_type(), feature_vector))
+        if len(feature_vector) > 0:
+            # print(f"analyser {analyzer.analysis_type().__str__()} writing to sink")
+            sink.put((analyzer.analysis_type(), feature_vector))
+            # print(f"analyser {analyzer.analysis_type().__str__()} written")
+    print(f"exiting analyser {analyzer.analysis_type().__str__()}")
+    analyzer.stop()
 
 
 def sink(classifier_factory, sink_queue: Queue) -> None:
     classifier: Classifier = classifier_factory()
     for dtype, data in QueueIterator[tuple[AnalysisType, Any]](sink_queue):
         with torch.no_grad():
+            # print(f"classifying frame from {dtype.__str__()}")
             conf = classifier.classify_as_suspicious(dtype, data)
-            if conf > 0.6:  # experiment with threshold values
-                send_notification('localhost:50051')
+            if conf != 0:  # experiment with threshold values
+                # send_notification('localhost:50051')
+                print(conf)
+    print("exiting classifier")
 
 
 def main(video_url: str, analyzer_factories, classifier_factory) -> None:
@@ -90,9 +99,12 @@ def main(video_url: str, analyzer_factories, classifier_factory) -> None:
         # print(f"inference speed: {time_elapsed * 1000}ms")
         if time_elapsed > target_frame_interval:
             prev_timestamp = time.time()
+            # print(f"sending frame {frames}")
             [queue.put(frame) for queue in queues]
+            # print(f"sent {frames}")
             frames += 1
 
+    print("after loop")
     # stop on camera disconnect
     video_source.release()
 
@@ -103,10 +115,11 @@ def main(video_url: str, analyzer_factories, classifier_factory) -> None:
 
 
 if __name__ == '__main__':
-    cache_queue = Queue(maxsize=1)
+    cache_queue = Queue(maxsize=2)
 
     # create the analysers in thread-local storage, instead of on the main thread to avoid parameters corruption
     #  and race conditions
+    # reference: https://docs.ultralytics.com/guides/yolo-thread-safe-inference/#understanding-python-threading
     def people_detector_factory() -> BaseAnalyzer:
         return CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection, ObjectDetector())
 
@@ -118,12 +131,11 @@ if __name__ == '__main__':
 
     def classifier_factory() -> Classifier:
         c = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=12).to(get_device())
-        c.compile()
+        # only on CUDA for the time being due to: https://github.com/pytorch/pytorch/issues/125254
+        c.compile() if torch.cuda.is_available() else None
         return c
 
     # GPU:  10.90s user 7.52s system 89% cpu 20.645 total
     # GPU with sequential activity recon:  10.65s user 7.28s system 87% cpu 20.565 total
     # CPU:  211.61s user 116.33s system 853% cpu 38.438 total
     main("video.MOV", [people_detector_factory, pose_detector_factory, activity_recognition_factory], classifier_factory)
-    # print(torch._dynamo.list_backends())
-    # print(torch._dynamo.list_backends(None))

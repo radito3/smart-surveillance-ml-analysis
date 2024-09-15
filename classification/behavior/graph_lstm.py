@@ -73,7 +73,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
                 or self.activities is None):
             self.yolo_buffer.append(vector) if dtype == AnalysisType.PersonDetection else None
             self.pose_buffer.append(vector) if dtype == AnalysisType.PoseEstimation else None
-            self.activities = vector if dtype == AnalysisType.ActivityDetection and len(vector) != 0 else None
+            self.activities = vector if dtype == AnalysisType.ActivityDetection else None
             return 0
 
         graph_data_sequences = [self._create_graph(yolo_results, pose_results) for yolo_results, pose_results in

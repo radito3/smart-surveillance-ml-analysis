@@ -11,6 +11,7 @@ class PoseDetector(SingleFrameAnalyzer):
 
     def __init__(self):
         self.model = YOLO('yolov8m-pose.pt').to(get_device())
+        self.model.compile() if torch.cuda.is_available() else None
 
     def analysis_type(self) -> AnalysisType:
         return AnalysisType.PoseEstimation

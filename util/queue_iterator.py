@@ -12,7 +12,6 @@ class QueueIterator(Generic[T]):
         return self
 
     def __next__(self) -> T:
-        # should there be a timeout when fetching?
         data: T = self.queue.get()
         if data is None:
             raise StopIteration from None
