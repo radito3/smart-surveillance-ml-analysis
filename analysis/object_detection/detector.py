@@ -1,8 +1,6 @@
-import os
 import cv2.typing
 import torch
 import ultralytics.engine.results
-from ultralytics.engine.model import Model
 from ultralytics.utils.plotting import Annotator, colors
 from ultralytics import YOLO
 
@@ -14,8 +12,7 @@ from util.device import get_device
 class ObjectDetector(SingleFrameAnalyzer):
 
     def __init__(self):
-        self.model = None
-        self.device = get_device()
+        self.model = YOLO('yolov10m.pt').to(get_device())
 
     def analysis_type(self) -> AnalysisType:
         return AnalysisType.PersonDetection
@@ -31,11 +28,6 @@ class ObjectDetector(SingleFrameAnalyzer):
 
     @torch.no_grad()
     def detect(self, frame: cv2.typing.MatLike, people_only: bool = False) -> ultralytics.engine.results.Results:
-        if self.model is None:
-            # lazy initialization, due to serialization issues
-            self.model = YOLO(os.environ["YOLO_MODEL"])
-            self.model.to(self.device)
-
         if people_only:
             classes = [0]  # class 0 is 'person'
         else:
@@ -54,8 +46,7 @@ class ObjectDetector(SingleFrameAnalyzer):
         # we need `track` instead of `predict` because we need to keep track of objects between frames
         # this may not be needed if we aren't using the GraphLSTM classifier
         return self.model.track(frame,
-                                persist=True,  # track-specific argument
+                                persist=True,  # persist tracker IDs between calls
                                 verbose=False,
                                 classes=classes,
-                                conf=0.5  # confidence cut-off threshold
                                 )[0]

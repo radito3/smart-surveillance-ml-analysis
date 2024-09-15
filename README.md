@@ -8,12 +8,6 @@ ML Analysis pipeline for the Smart Surveillance System
  * OpenCV
  * PyTorch
  * PyTorch Geometric
- * [rtmlib](https://github.com/Tau-J/rtmlib)
- * [Onnxruntime](https://onnxruntime.ai/)
-
-## Environment
- * YOLO_MODEL=yolov10m.pt
- * RTMO_MODEL_URL=[RTMO-M](https://download.openmmlab.com/mmpose/v1/projects/rtmo/onnx_sdk/rtmo-m_16xb16-600e_body7-640x640-39e78cc4_20231211.zip)
 
 ## changes from the original idea
  - switch OpenPose to RTMO/YOLO-pose because OpenPose is really old, outdated and unsupported
@@ -23,13 +17,12 @@ ML Analysis pipeline for the Smart Surveillance System
  [article 2](https://www.mdpi.com/1424-8220/17/11/2556)
 
 ## TODO
- - ensure all models are on the GPU if possible
+ - compile models with 'max-autotune' if present (needs CUDA GPU)
  - write about the tracking algorithms used in YOLO
  - [variable input size for neural network](https://stats.stackexchange.com/a/138760)
  - [Comparative Analysis of OpenPose, PoseNet, and MoveNet](https://iieta.org/journals/ts/paper/10.18280/ts.390111)
  - write about the [RTMO](https://arxiv.org/pdf/2312.07526) model; [additional info](https://github.com/open-mmlab/mmpose/tree/main/projects/rtmo)
- - write a comparison between [YOLO-pose](https://docs.ultralytics.com/tasks/pose) (two-stage top-down detector) and RTMO (one-stage detector)
- - write about ONNX Runtime
+ - write a comparison between pose detectors (Yolo-pose, RTMO, AlphaPose, DEKR, etc.)
  - write about [MoviNet](https://arxiv.org/pdf/2103.11511) and [MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/guide) as alternatives to ResNet18_3D
  - write about [MediaPipe body pose landmarks](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker)
  - write about [MediaPipe models](https://chuoling.github.io/mediapipe/solutions/holistic.html)
@@ -37,7 +30,7 @@ ML Analysis pipeline for the Smart Surveillance System
  - write about [Visual Transformers (ViT)](https://arxiv.org/pdf/2102.05095)
  - write about two-stream convolutional networks
  - write about nvidia containers and container runtime plugin, k8s node plugin
- - might write about improvements in [YOLOv9](https://learnopencv.com/yolov9-advancing-the-yolo-legacy/) and YOLOv10
+ - write about improvements in [YOLOv9](https://learnopencv.com/yolov9-advancing-the-yolo-legacy/) and YOLOv10
  - write about training loss functions, optimizers (SGD, Adam) and metrics (accuracy, precision, recall, F1-score, ROC-AUC)
  - useful info about general principles of [HAR](https://www.sciencedirect.com/science/article/pii/S187705092200045X?ref=cra_js_challenge&fr=RR-1)
 

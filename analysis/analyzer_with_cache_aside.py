@@ -1,23 +1,22 @@
+from queue import Queue
+
 from .analyzer import BaseAnalyzer
 from .types import AnalysisType
 
 
 class CacheAsideAnalyzer(BaseAnalyzer):
 
-    def __init__(self, delegate: BaseAnalyzer, cache_life: int):
+    def __init__(self, cache_queue: Queue, dtype: AnalysisType, delegate: BaseAnalyzer = None):
         self._delegate = delegate
-        self._cached_value = None
-        self._max_cache_life = cache_life
-        self._remaining_cache_life = 0
+        self._dtype = dtype
+        self._cache_queue = cache_queue
 
     def analysis_type(self) -> AnalysisType:
-        return self._delegate.analysis_type()
+        return self._dtype
 
     def analyze(self, payload: any, *args, **kwargs) -> list[any]:
-        if self._remaining_cache_life > 0:
-            self._remaining_cache_life -= 1
-            return self._cached_value
-        result = self._delegate.analyze(payload, *args, **kwargs)
-        self._cached_value = result
-        self._remaining_cache_life = self._max_cache_life
-        return result
+        if self._delegate is not None:
+            result = self._delegate.analyze(payload, *args, **kwargs)
+            self._cache_queue.put(result)
+            return result
+        return self._cache_queue.get()
