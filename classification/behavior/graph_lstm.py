@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch_geometric.nn import GCNConv, global_mean_pool, global_max_pool, SAGPooling
 from torch_geometric.data import Data
 from itertools import zip_longest
+from math import sqrt
 
 from analysis.types import AnalysisType
 from classification.classifier import Classifier
@@ -34,6 +35,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
                  node_features: int,
                  window_size: int,
                  window_step: int,
+                 dimensions: tuple[float, float],
                  hidden_dim=16,
                  pooling_channels=16,
                  pooling_ratio=0.8,
@@ -48,6 +50,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
         self.window_size = window_size
         self.window_step = window_step  # every N frames move to a new window
+        self.width, self.height = dimensions
         self.prev_detections: list[torch.Tensor] = []
         self.yolo_buffer = []
         self.pose_buffer = []
@@ -124,6 +127,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
         activities = np.array(self.activities, dtype=np.float32).flatten()
 
+        # these paddings aren't great...
         if len(yolo_results) > len(pose_results):
             for _ in range(len(yolo_results) - len(pose_results)):
                 orientations = np.append(orientations, 0)
@@ -141,21 +145,22 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         if len(self.activities) > max(len(yolo_results), len(pose_results)):
             activities = np.delete(activities, len(activities) - 1)
 
-        # Normalize the features using techniques such as Min-Max Scaling or Z-Score Normalization
-        # to ensure all input features contribute equally?
         features = np.hstack((body_positions.reshape(-1, 1), velocities.reshape(-1, 1),
                               average_velocities.reshape(-1, 1), orientations.reshape(-1, 1),
                               activities.reshape(-1, 1)))
 
-        # Define edges based on proximity and relative orientation
         edges = []
         edge_weights = []
         for i in range(len(features)):
             for j in range(i + 1, len(features)):
-                distance = np.linalg.norm(centroids_current[i] - centroids_current[j])
-                # TODO: calculate the relative angle based on the quadrant of the two people
-                relative_angle = 1  # np.abs(directions[i] - directions[j])
-                edge_weight = distance / relative_angle if relative_angle != 0 else distance
+                """
+                edge weight = 1/(distance / sqrt(width ^ 2 + height ^ 2)) * (2 - cos(|theta1 - theta2| mod 2 * pi))
+                """
+                euclidean_distance = np.linalg.norm(centroids_current[i] - centroids_current[j])
+                norm_distance = self.__normalize_distance(euclidean_distance)
+                phi = np.abs(orientations[i] - orientations[j]) % (2 * np.pi)
+                f_phi = 2 - np.cos(phi)
+                edge_weight = 1 / (norm_distance * f_phi)
 
                 # make a complete (fully-connected) graph
                 edges.append((i, j))
@@ -164,6 +169,9 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
         self.prev_detections = detections
         return features, edges, edge_weights
+
+    def __normalize_distance(self, distance: float) -> float:
+        return distance / sqrt(self.width ** 2 + self.height ** 2)
 
     @staticmethod
     def __contains_by_id(detections, track_id) -> bool:
@@ -215,7 +223,6 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         # bounding box in xyxy format [xmin, ymin, xmax, ymax]
         return np.array([(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)
 
-    # TODO: verify this produces valid results
     @staticmethod
     def _classify_position(keypoints) -> int:
         head_y = keypoints[0][1]
@@ -229,62 +236,6 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
             return 1  # Sitting
         else:
             return -1  # Lying Down
-
-    @staticmethod
-    def _classify_body_position(keypoints):
-        """
-        Classify body position based on keypoints.
-
-        Args:
-            keypoints (ndarray): Array of shape (num_keypoints, 3).
-
-        Returns:
-            str: One of "Standing", "Sitting", "Lying Down", or "Unknown".
-        """
-        # Define keypoint indices based on COCO format
-        # COCO has 17 keypoints: 0 - nose, 1 - left eye, 2 - right eye, 3 - left ear,
-        # 4 - right ear, 5 - left shoulder, 6 - right shoulder,
-        # 7 - left elbow, 8 - right elbow, 9 - left wrist, 10 - right wrist,
-        # 11 - left hip, 12 - right hip, 13 - left knee, 14 - right knee,
-        # 15 - left ankle, 16 - right ankle
-        # For simplicity, we'll use average positions for shoulders, hips, knees
-
-        # Extract keypoints
-        nose = keypoints[0][:2]
-        left_shoulder = keypoints[5][:2]
-        right_shoulder = keypoints[6][:2]
-        left_hip = keypoints[11][:2]
-        right_hip = keypoints[12][:2]
-        left_knee = keypoints[13][:2]
-        right_knee = keypoints[14][:2]
-
-        # Average positions
-        shoulders = (left_shoulder + right_shoulder) / 2
-        hips = (left_hip + right_hip) / 2
-        knees = (left_knee + right_knee) / 2
-
-        # Calculate vertical differences
-        shoulder_hip_diff = abs(shoulders[1] - hips[1])
-        hip_knee_diff = abs(hips[1] - knees[1])
-        shoulder_nose_diff = abs(shoulders[1] - nose[1])
-
-        # Calculate horizontal differences to assess alignment
-        horizontal_diff = abs(shoulders[0] - hips[0]) + abs(hips[0] - knees[0])
-
-        # Define thresholds (these may need to be adjusted based on actual data and image scale)
-        vertical_threshold_standing = 100  # Example value
-        vertical_threshold_sitting = 50    # Example value
-        horizontal_threshold = 30          # Example value
-
-        # Determine posture
-        if shoulder_hip_diff > vertical_threshold_standing and hip_knee_diff > vertical_threshold_standing:
-            return "Standing"
-        elif shoulder_hip_diff > vertical_threshold_standing and hip_knee_diff < vertical_threshold_sitting:
-            return "Sitting"
-        elif horizontal_diff < horizontal_threshold:
-            return "Lying Down"
-        else:
-            return "Unknown"
 
     @staticmethod
     def _calculate_orientation(keypoints):
@@ -310,56 +261,3 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         # A positive angle indicates a counterclockwise rotation from the horizontal
         # A negative angle indicates a clockwise rotation from the horizontal
         return np.arctan2(delta_y, delta_x)
-
-    @staticmethod
-    def _is_facing_towards_camera(keypoints):
-        nose = keypoints[0][:2]
-        left_eye = keypoints[1][:2]
-        right_eye = keypoints[2][:2]
-        left_shoulder = keypoints[5][:2]
-        right_shoulder = keypoints[6][:2]
-
-        # Check if keypoints are within the horizontal bounds of the shoulders
-        # shoulders_center = (left_shoulder[0] + right_shoulder[0]) / 2
-        # shoulder_width = abs(left_shoulder[0] - right_shoulder[0])
-
-        face_avg_x_pos = np.average(nose[0], left_eye[0], right_eye[0])
-        face_avg_conf = np.average(nose[2], left_eye[2], right_eye[2])
-
-        if (left_shoulder[0] <= face_avg_x_pos <= right_shoulder[0]) or face_avg_conf > 0.6:
-            return 1  # Facing Towards
-        # elif nose[0] < left_shoulder[0] or nose[0] > right_shoulder[0]:
-        #     return "Facing Away"
-        else:
-            return -1  # Facing Away
-
-    @staticmethod
-    def _determine_quadrant(orientation_radians, facing_direction):
-        """
-        Determine which quadrant the person is facing based on orientation and facing direction.
-
-        Args:
-            orientation_radians (float): Orientation angle in radians.
-            facing_direction (str): "Facing Towards" or "Facing Away".
-
-        Returns:
-            str: The quadrant the person is facing ("Quadrant I", "Quadrant II", "Quadrant III", "Quadrant IV").
-        """
-        if facing_direction == "Facing Towards":
-            if -np.pi/4 <= orientation_radians <= np.pi/4:
-                return "Quadrant I (Forward Right)"
-            elif np.pi/4 < orientation_radians <= 3*np.pi/4:
-                return "Quadrant II (Forward Left)"
-            elif orientation_radians < -np.pi/4 and orientation_radians >= -3*np.pi/4:
-                return "Quadrant IV (Forward Right)"
-            else:
-                return "Quadrant II (Forward Left)"
-        elif facing_direction == "Facing Away":
-            if -np.pi/4 <= orientation_radians <= np.pi/4:
-                return "Quadrant IV (Backward Right)"
-            elif np.pi/4 < orientation_radians <= 3*np.pi/4:
-                return "Quadrant III (Backward Left)"
-            elif orientation_radians < -np.pi/4 and orientation_radians >= -3*np.pi/4:
-                return "Quadrant I (Backward Right)"
-            else:
-                return "Quadrant III (Backward Left)"

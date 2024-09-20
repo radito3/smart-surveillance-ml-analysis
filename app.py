@@ -1,5 +1,5 @@
 import cv2
-import threading as th
+from threading import Thread
 from queue import Queue
 import os
 import time
@@ -25,32 +25,30 @@ from util.device import get_device
 def analyzer_wrapper(analyzer_factory, frame_src: Queue, sink: Queue) -> None:
     analyzer: BaseAnalyzer = analyzer_factory()
     for frame in QueueIterator[cv2.typing.MatLike](frame_src):
-        # print(f"processing frame from {analyzer.analysis_type().__str__()}")
         feature_vector = analyzer.analyze(frame)
         if len(feature_vector) > 0:
-            # print(f"analyser {analyzer.analysis_type().__str__()} writing to sink")
             sink.put((analyzer.analysis_type(), feature_vector))
-            # print(f"analyser {analyzer.analysis_type().__str__()} written")
-    # print(f"exiting analyser {analyzer.analysis_type().__str__()}")
 
 
-def sink(classifier_factory, sink_queue: Queue) -> None:
-    classifier: Classifier = classifier_factory()
+def sink(classifier_factory, dims: tuple[float, float], sink_queue: Queue) -> None:
+    classifier: Classifier = classifier_factory(dims)
     for dtype, data in QueueIterator[tuple[AnalysisType, Any]](sink_queue):
         with torch.no_grad():
-            # print(f"classifying frame from {dtype.__str__()}")
             conf = classifier.classify_as_suspicious(dtype, data)
             if conf != 0:  # experiment with threshold values
                 # send_notification('localhost:50051')
                 print(conf)
-    # print("exiting classifier")
 
 
 def main(video_url: str, analyzer_factories, classifier_factory) -> None:
     # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+    # if the kafka semantics are adopted, this can be moved to a dedicated producer class
+    # and wrapper producer classes can be added for lower and upper bounding of fps
     video_source = cv2.VideoCapture(video_url, cv2.CAP_FFMPEG)
     assert video_source.isOpened(), "Error opening video stream"
+    width = video_source.get(cv2.CAP_PROP_FRAME_WIDTH)
+    height = video_source.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
     def close_video_capture(signum, frame):
         video_source.release()
@@ -61,11 +59,11 @@ def main(video_url: str, analyzer_factories, classifier_factory) -> None:
     queues: list[Queue] = [Queue(maxsize=1) for _ in analyzer_factories]
     sink_queue = Queue(maxsize=1)
 
-    threads: list[th.Thread] = [th.Thread(target=analyzer_wrapper, args=(analyzer_factory, queue, sink_queue,))
-                                for analyzer_factory, queue in zip(analyzer_factories, queues)]
+    threads: list[Thread] = [Thread(target=analyzer_wrapper, args=(analyzer_factory, queue, sink_queue,))
+                             for analyzer_factory, queue in zip(analyzer_factories, queues)]
     [thread.start() for thread in threads]
 
-    classifier_thread = th.Thread(target=sink, args=(classifier_factory, sink_queue,))
+    classifier_thread = Thread(target=sink, args=(classifier_factory, (width, height), sink_queue,))
     classifier_thread.start()
 
     # this introduces an upper bound to frame rate
@@ -97,9 +95,7 @@ def main(video_url: str, analyzer_factories, classifier_factory) -> None:
         # print(f"inference speed: {time_elapsed * 1000}ms")
         if time_elapsed > target_frame_interval:
             prev_timestamp = time.time()
-            # print(f"sending frame {frames}")
             [queue.put(frame) for queue in queues]
-            # print(f"sent {frames}")
             frames += 1
 
     # stop on camera disconnect
@@ -128,8 +124,8 @@ if __name__ == '__main__':
         # TODO: consider the kafka semantics
         return MultiPersonActivityRecognitionAnalyzer(CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection), 24, timedelta(seconds=2), 12)
 
-    def classifier_factory() -> Classifier:
-        c = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=12).to(get_device())
+    def classifier_factory(dims: tuple[float, float]) -> Classifier:
+        c = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=12, dimensions=dims).to(get_device())
         # only on CUDA for the time being due to: https://github.com/pytorch/pytorch/issues/125254
         c.compile() if torch.cuda.is_available() else None
         return c
