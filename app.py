@@ -130,10 +130,4 @@ if __name__ == '__main__':
         c.compile() if torch.cuda.is_available() else None
         return c
 
-    # GPU:  10.90s user 7.52s system 89% cpu 20.645 total
-    # GPU with sequential activity recon:  10.65s user 7.28s system 87% cpu 20.565 total
-    # GPU with threads:  11.26s user 7.69s system 96% cpu 19.716 total
-    # CPU:  211.61s user 116.33s system 853% cpu 38.438 total
-    # turns out the processing issues were not because of the GPU but because of race conditions stemming from
-    # creating the models in the main thread and moving them to threads
     main("video.MOV", [people_detector_factory, pose_detector_factory, activity_recognition_factory], classifier_factory)

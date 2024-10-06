@@ -7,10 +7,10 @@
 #    is less than a threshold
 
 import time
+from queue import Queue
 import cv2
 import numpy as np
 import torch
-import torchvision
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, Dataset
 from datetime import datetime, timedelta
@@ -20,12 +20,9 @@ from analysis.activity.multi_person_activity_recon import MultiPersonActivityRec
 from analysis.analyzer_with_cache_aside import CacheAsideAnalyzer
 from analysis.object_detection.detector import ObjectDetector
 from analysis.pose_detection.pose_detector import PoseDetector
+from analysis.types import AnalysisType
 from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
 from classification.classifier import Classifier
-
-# Create datasets for training & validation, download if necessary
-training_set = torchvision.datasets.FashionMNIST('./data', train=True, download=True)
-validation_set = torchvision.datasets.FashionMNIST('./data', train=False, download=True)
 
 
 class VideoDataset(Dataset):
@@ -43,16 +40,8 @@ class VideoDataset(Dataset):
 
 
 # Create data loaders for our datasets; shuffle for training, not for validation
-training_loader = DataLoader(training_set, batch_size=4, shuffle=True)
-validation_loader = DataLoader(validation_set, batch_size=4, shuffle=False)
-
-# Class labels
-classes = ('T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
-           'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle Boot')
-
-# Report split sizes
-print('Training set has {} instances'.format(len(training_set)))
-print('Validation set has {} instances'.format(len(validation_set)))
+training_loader = DataLoader(VideoDataset([], []), batch_size=4, shuffle=True)
+validation_loader = DataLoader(VideoDataset([], []), batch_size=4, shuffle=False)
 
 hyperparams = {
     'hidden_dim': [16, 32, 64],
@@ -62,7 +51,7 @@ hyperparams = {
     'lstm_layers': [1, 2]
 }
 
-model = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=12)
+model = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=12, dimensions=(1920, 1080))
 model.train()
 optimizer = torch.optim.Adam(model.parameters())
 loss_fn = torch.nn.BCELoss()
@@ -75,10 +64,11 @@ def run_pipeline(video_url: str, classifier: Classifier) -> float:
     target_frame_interval: float = 1./target_fps
     prev_timestamp: float = 0
 
-    cacheable_people_detector = CacheAsideAnalyzer(ObjectDetector(), cache_life=1)
-    analyzers = [cacheable_people_detector, PoseDetector(),
-                 MultiPersonActivityRecognitionAnalyzer(cacheable_people_detector, target_fps,
-                                                        timedelta(seconds=2), target_fps // 2)]
+    cache_queue = Queue(maxsize=1)
+    people_detector = CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection, ObjectDetector())
+    analyzers = [people_detector, PoseDetector(),
+                 MultiPersonActivityRecognitionAnalyzer(CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection),
+                                                        target_fps, timedelta(seconds=2), target_fps // 2)]
 
     predictions: list[float] = []
     while video_source.isOpened():
@@ -89,7 +79,7 @@ def run_pipeline(video_url: str, classifier: Classifier) -> float:
 
         if time_elapsed > target_frame_interval:
             prev_timestamp = time.time()
-            # sequential processing will be very slow, but it's okay for training
+            # sequential processing will be slower, but that's okay for training
             results = [(analyzer.analysis_type(), analyzer.analyze(frame)) for analyzer in analyzers]
             for dtype, data in results:
                 conf = classifier.classify_as_suspicious(dtype, data)
@@ -115,6 +105,7 @@ def train_one_epoch(epoch_index, tb_writer):
         # Adjust learning weights
         optimizer.step()
         running_loss += loss.item()
+
         # Assuming you have true labels (y_true) and predicted probabilities (y_pred_probs)
         y_pred = (outputs >= 0.5).astype(int)
 
