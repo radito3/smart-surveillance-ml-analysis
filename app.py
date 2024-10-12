@@ -70,16 +70,10 @@ def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str) -> None:
     #  reliably transmit the video stream
     target_fps: int = 24  # to ensure consistency between training and analysis
     target_frame_interval: float = 1./target_fps
-    # print(f"target inference speed: {target_frame_interval * 1000}ms")
     prev_timestamp: float = 0
     read_attempts: int = 3
 
-    # debug
-    total_frames = video_source.get(cv2.CAP_PROP_FPS) * 2
-    # print(f"total frames: {total_frames}")
-    frames = 0
-
-    while video_source.isOpened() and frames < total_frames:
+    while video_source.isOpened():
         time_elapsed: float = time.time() - prev_timestamp
         ok, frame = video_source.read()  # network I/O
         if not ok and read_attempts > 0:
@@ -89,11 +83,9 @@ def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str) -> None:
             break
         read_attempts = 3  # guard only non-transitive failures
 
-        # print(f"inference speed: {time_elapsed * 1000}ms")
         if time_elapsed > target_frame_interval:
             prev_timestamp = time.time()
             [queue.put(frame) for queue in queues]
-            frames += 1
 
     # stop on camera disconnect
     video_source.release()
