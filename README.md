@@ -2,12 +2,13 @@
 ML Analysis pipeline for the Smart Surveillance System
 
 ## Dependencies
- * Python 3.9+
+ * Python 3.12
  * NumPy
  * Ultralytics
  * OpenCV
  * PyTorch
  * PyTorch Geometric
+ * gRPC
 
 ## changes from the original idea
  - switch OpenPose to RTMO/YOLO-pose because OpenPose is really old, outdated and unsupported

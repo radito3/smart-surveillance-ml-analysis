@@ -1,28 +1,23 @@
 import cv2
+from collections.abc import Callable
 from threading import Thread
 from queue import Queue
 import os
+import sys
 import time
 import signal
 from typing import Any
-from datetime import timedelta
 import torch
 
-from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
 from analysis.analyzer import BaseAnalyzer
-from analysis.analyzer_with_cache_aside import CacheAsideAnalyzer
-from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
 from classification.classifier import Classifier
 from analysis.types import AnalysisType
-from classification.people_presence.simple_presence_classifier import SimplePresenceClassifier
+from context.context_factory import ContextFactory
 from notifications.notification_delegate import send_notification
-from analysis.object_detection.detector import ObjectDetector
-from analysis.pose_detection.pose_detector import PoseDetector
 from util.queue_iterator import QueueIterator
-from util.device import get_device
 
 
-def analyzer_wrapper(analyzer_factory, frame_src: Queue, sink: Queue) -> None:
+def analyzer_wrapper(analyzer_factory: Callable[[], BaseAnalyzer], frame_src: Queue, sink: Queue) -> None:
     analyzer: BaseAnalyzer = analyzer_factory()
     for frame in QueueIterator[cv2.typing.MatLike](frame_src):
         feature_vector = analyzer.analyze(frame)
@@ -30,17 +25,16 @@ def analyzer_wrapper(analyzer_factory, frame_src: Queue, sink: Queue) -> None:
             sink.put((analyzer.analysis_type(), feature_vector))
 
 
-def sink(classifier_factory, dims: tuple[float, float], sink_queue: Queue) -> None:
-    classifier: Classifier = classifier_factory(dims)
+def sink(classifier_factory: Callable[[], Classifier], sink_queue: Queue) -> None:
+    classifier: Classifier = classifier_factory()
     for dtype, data in QueueIterator[tuple[AnalysisType, Any]](sink_queue):
         with torch.no_grad():
             conf = classifier.classify_as_suspicious(dtype, data)
-            if conf != 0:  # experiment with threshold values
-                # send_notification('localhost:50051')
-                print(conf)
+            if conf > 0.6:  # experiment with threshold values
+                send_notification(os.environ['NOTIFICATION_SERVICE_URL'])
 
 
-def main(video_url: str, analyzer_factories, classifier_factory) -> None:
+def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str) -> None:
     # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
     # if the kafka semantics are adopted, this can be moved to a dedicated producer class
@@ -56,6 +50,9 @@ def main(video_url: str, analyzer_factories, classifier_factory) -> None:
     signal.signal(signal.SIGINT, close_video_capture)
     signal.signal(signal.SIGTERM, close_video_capture)
 
+    analyzer_factories = ctx_factory.create_analyzers(ctx_type)
+    classifier_factory = ctx_factory.create_classifier(ctx_type, (width, height))
+
     queues: list[Queue] = [Queue(maxsize=1) for _ in analyzer_factories]
     sink_queue = Queue(maxsize=1)
 
@@ -63,7 +60,7 @@ def main(video_url: str, analyzer_factories, classifier_factory) -> None:
                              for analyzer_factory, queue in zip(analyzer_factories, queues)]
     [thread.start() for thread in threads]
 
-    classifier_thread = Thread(target=sink, args=(classifier_factory, (width, height), sink_queue,))
+    classifier_thread = Thread(target=sink, args=(classifier_factory, sink_queue,))
     classifier_thread.start()
 
     # this introduces an upper bound to frame rate
@@ -108,26 +105,11 @@ def main(video_url: str, analyzer_factories, classifier_factory) -> None:
 
 
 if __name__ == '__main__':
-    cache_queue = Queue(maxsize=1)
+    if len(sys.argv) != 3:
+        print("Invalid command-line arguments")
+        sys.exit(1)
 
-    # create the analysers in thread-local storage, instead of on the main thread to avoid parameters corruption
-    #  and race conditions
-    # reference: https://docs.ultralytics.com/guides/yolo-thread-safe-inference/#understanding-python-threading
-    def people_detector_factory() -> BaseAnalyzer:
-        return CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection, ObjectDetector())
+    video_url_ = sys.argv[1]
+    ctx_type_ = sys.argv[2]
 
-    def pose_detector_factory() -> BaseAnalyzer:
-        return PoseDetector()
-
-    def activity_recognition_factory() -> BaseAnalyzer:
-        # FIXME: I don't like the current implementation with the cache-aside analyser
-        # TODO: consider the kafka semantics
-        return MultiPersonActivityRecognitionAnalyzer(CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection), 24, timedelta(seconds=2), 12)
-
-    def classifier_factory(dims: tuple[float, float]) -> Classifier:
-        c = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=12, dimensions=dims).to(get_device())
-        # only on CUDA for the time being due to: https://github.com/pytorch/pytorch/issues/125254
-        c.compile() if torch.cuda.is_available() else None
-        return c
-
-    main("video.MOV", [people_detector_factory, pose_detector_factory, activity_recognition_factory], classifier_factory)
+    main(video_url_, ContextFactory(), ctx_type_)
