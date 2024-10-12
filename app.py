@@ -66,6 +66,8 @@ def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str) -> None:
     # this introduces an upper bound to frame rate
     # however, if the real-time fps is significantly lower than 24, this could lead to issues with analysis performance
     # one mitigation technique is Frame Duplication/Interpolation, but it can be costly
+    # for a lower bound implementation (but it does have frame dropping, so it might not be desirable), see:
+    # https://medium.com/@vikas.c20/optimizing-rtsp-video-processing-in-opencv-overcoming-fps-discrepancies-and-buffering-issues-463e204c7b86
     # for a 1080p @ 60 fps with h.264 encoding video source, a network throughput of at least 8-12 Mbps is required to
     #  reliably transmit the video stream
     target_fps: int = 24  # to ensure consistency between training and analysis
@@ -98,7 +100,7 @@ def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str) -> None:
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
-        print("Invalid command-line arguments")
+        print("Invalid command-line arguments. Required <video_url> <classification_type>")
         sys.exit(1)
 
     video_url_ = sys.argv[1]

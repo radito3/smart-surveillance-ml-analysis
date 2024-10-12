@@ -156,7 +156,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
                 """
                 edge weight = 1/(distance / sqrt(width ^ 2 + height ^ 2)) * (2 - cos(|theta1 - theta2| mod 2 * pi))
                 """
-                euclidean_distance = np.linalg.norm(centroids_current[i] - centroids_current[j])
+                euclidean_distance = np.linalg.norm(centroids_current[i] - centroids_current[j]).__float__()
                 norm_distance = self.__normalize_distance(euclidean_distance)
                 phi = np.abs(orientations[i] - orientations[j]) % (2 * np.pi)
                 f_phi = 2 - np.cos(phi)

@@ -1,0 +1,8 @@
+FROM python:3.12-bookworm
+
+WORKDIR /app
+ADD . /app
+RUN pip3 install -r requirements.txt -r train-requirements.txt
+
+ENTRYPOINT ["python3"]
+CMD ["train.py"]

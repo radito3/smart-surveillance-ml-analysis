@@ -86,7 +86,7 @@ def run_pipeline(video_url: str, classifier: Classifier) -> float:
                 if conf != 0:
                     predictions.append(conf)
     video_source.release()
-    return np.mean(predictions)
+    return np.mean(predictions).__float__()
 
 
 def train_one_epoch(epoch_index, tb_writer):
