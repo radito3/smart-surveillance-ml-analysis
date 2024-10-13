@@ -118,4 +118,11 @@ if __name__ == '__main__':
     ctx_type_ = sys.argv[2]
     notification_webhook = sys.argv[3]
 
+    log_level_env = os.environ['LOG_LEVEL']
+    mapping = logging.getLevelNamesMapping()
+    if log_level_env is not None and len(log_level_env) != 0 and log_level_env in mapping:
+        logging.root.setLevel(mapping[log_level_env])
+    else:
+        logging.root.setLevel(logging.DEBUG)
+
     main(video_url_, ContextFactory(), ctx_type_, notification_webhook)
