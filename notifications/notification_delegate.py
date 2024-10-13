@@ -1,4 +1,5 @@
 import logging
+import time
 import grpc
 from notifications import notification_service_pb2
 from notifications import notification_service_pb2_grpc
@@ -13,8 +14,9 @@ def send_notification(address: str) -> None:
             _send_notification_internal(address)
             return
         except Exception as err:
-            logging.debug(f"Sending notification failed: {err}")
+            logging.debug(f"Sending notification failed: {err}. Retrying after 2 seconds")
             retry_attempts -= 1
+            time.sleep(2)
     logging.error(f"Could not send notification within {default_retry_attempts} attempts. Consider investigating the issue")
 
 

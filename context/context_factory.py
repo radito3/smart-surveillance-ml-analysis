@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable
 from datetime import timedelta
 from queue import Queue
@@ -40,6 +41,9 @@ class ContextFactory:
                 def factory():
                     c = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=12,
                                                  dimensions=dimensions).to(get_device())
+                    pretrained_weights_path = os.environ['GRAPH_LSTM_WEIGHTS_PATH']
+                    if pretrained_weights_path is not None and len(pretrained_weights_path) != 0:
+                        c.load_state_dict(torch.load(pretrained_weights_path))
                     # only on CUDA for the time being due to: https://github.com/pytorch/pytorch/issues/125254
                     c.compile() if torch.cuda.is_available() else None
                     return c
