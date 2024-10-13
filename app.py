@@ -1,3 +1,4 @@
+import logging
 import cv2
 from collections.abc import Callable
 from threading import Thread
@@ -25,16 +26,16 @@ def analyzer_wrapper(analyzer_factory: Callable[[], BaseAnalyzer], frame_src: Qu
             sink.put((analyzer.analysis_type(), feature_vector))
 
 
-def sink(classifier_factory: Callable[[], Classifier], sink_queue: Queue) -> None:
+def sink(classifier_factory: Callable[[], Classifier], notif_webhook: str, sink_queue: Queue) -> None:
     classifier: Classifier = classifier_factory()
     for dtype, data in QueueIterator[tuple[AnalysisType, Any]](sink_queue):
         with torch.no_grad():
             conf = classifier.classify_as_suspicious(dtype, data)
             if conf > 0.6:  # experiment with threshold values
-                send_notification(os.environ['NOTIFICATION_SERVICE_URL'])
+                send_notification(notif_webhook)
 
 
-def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str) -> None:
+def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str, notif_webhook: str) -> None:
     # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
     # if the kafka semantics are adopted, this can be moved to a dedicated producer class
@@ -60,7 +61,7 @@ def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str) -> None:
                              for analyzer_factory, queue in zip(analyzer_factories, queues)]
     [thread.start() for thread in threads]
 
-    classifier_thread = Thread(target=sink, args=(classifier_factory, sink_queue,))
+    classifier_thread = Thread(target=sink, args=(classifier_factory, notif_webhook, sink_queue,))
     classifier_thread.start()
 
     # this introduces an upper bound to frame rate
@@ -80,6 +81,8 @@ def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str) -> None:
         ok, frame = video_source.read()  # network I/O
         if not ok and read_attempts > 0:
             read_attempts -= 1
+            logging.debug("Connection issue: Retrying after 2 seconds")
+            time.sleep(2)
             continue
         if not ok and read_attempts == 0:
             break
@@ -99,11 +102,12 @@ def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str) -> None:
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print("Invalid command-line arguments. Required <video_url> <classification_type>")
+    if len(sys.argv) != 4:
+        logging.error("Invalid command-line arguments. Required <video_url> <classification_type> <notification_webhook>")
         sys.exit(1)
 
     video_url_ = sys.argv[1]
     ctx_type_ = sys.argv[2]
+    notification_webhook = sys.argv[3]
 
-    main(video_url_, ContextFactory(), ctx_type_)
+    main(video_url_, ContextFactory(), ctx_type_, notification_webhook)

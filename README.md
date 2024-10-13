@@ -22,6 +22,7 @@ ML Analysis pipeline for the Smart Surveillance System
  - write about the tracking algorithms used in YOLO
  - [variable input size for neural network](https://stats.stackexchange.com/a/138760)
  - [Comparative Analysis of OpenPose, PoseNet, and MoveNet](https://iieta.org/journals/ts/paper/10.18280/ts.390111)
+ - [OpenPose vs MediaPipe](https://maureentkt.medium.com/selecting-your-2d-real-time-pose-estimation-models-7d0777bf935f)
  - write about the [RTMO](https://arxiv.org/pdf/2312.07526) model; [additional info](https://github.com/open-mmlab/mmpose/tree/main/projects/rtmo)
  - write a comparison between pose detectors (Yolo-pose, RTMO, AlphaPose, DEKR, etc.)
  - write about [MoviNet](https://arxiv.org/pdf/2103.11511) and [MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/guide) as alternatives to ResNet18_3D
@@ -45,6 +46,7 @@ ML Analysis pipeline for the Smart Surveillance System
  - https://www.ibm.com/topics/anomaly-detection
  - probably not useful, but still might be valuable: [xLSTM](https://arxiv.org/html/2406.04303v1)
  - probably not useful, as it is mainly used for predictions: [ConvLSTM](https://medium.com/neuronio/an-introduction-to-convlstm-55c9025563a7)
+ - [AlphaPose](https://arxiv.org/pdf/2211.03375)
  - [useless?](https://arxiv.org/pdf/1711.09577v2)
  - Writing a video to disk: `cv2.VideoWriter("output.avi", cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))`
 

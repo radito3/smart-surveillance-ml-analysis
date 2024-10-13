@@ -5,7 +5,7 @@
 # create processes for each model
 # train 100 epochs, check accuracy, repeat training until the difference in accuracy between validation iterations
 #    is less than a threshold
-
+import logging
 import time
 from queue import Queue
 import cv2
@@ -115,7 +115,7 @@ def train_one_epoch(epoch_index, tb_writer):
 
         if i % 1000 == 999:
             last_loss = running_loss / 1000  # loss per batch
-            print('  batch {} loss: {}'.format(i + 1, last_loss))
+            logging.debug('  batch {} loss: {}'.format(i + 1, last_loss))
             tb_x = epoch_index * len(training_loader) + i + 1
             tb_writer.add_scalar('Loss/train', last_loss, tb_x)
             running_loss = 0.
@@ -136,7 +136,7 @@ best_vloss = 1_000_000.
 # scenes and configurations
 
 for epoch in range(EPOCHS):
-    print('EPOCH {}:'.format(epoch_number + 1))
+    logging.debug('EPOCH {}:'.format(epoch_number + 1))
 
     # Make sure gradient tracking is on, and do a pass over the data
     model.train(True)
@@ -156,7 +156,7 @@ for epoch in range(EPOCHS):
             running_vloss += vloss
 
     avg_vloss = running_vloss / (i + 1)
-    print('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
+    logging.debug('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
 
     # Log the running loss averaged per batch
     # for both training and validation

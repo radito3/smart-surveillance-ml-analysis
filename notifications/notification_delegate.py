@@ -1,3 +1,4 @@
+import logging
 import grpc
 from notifications import notification_service_pb2
 from notifications import notification_service_pb2_grpc
@@ -12,9 +13,9 @@ def send_notification(address: str) -> None:
             _send_notification_internal(address)
             return
         except Exception as err:
-            print(f"Sending notification failed: {err}")
+            logging.debug(f"Sending notification failed: {err}")
             retry_attempts -= 1
-    print(f"Could not send notification within {default_retry_attempts} attempts. Consider investigating the issue")
+    logging.error(f"Could not send notification within {default_retry_attempts} attempts. Consider investigating the issue")
 
 
 def _send_notification_internal(address: str) -> None:
@@ -23,7 +24,6 @@ def _send_notification_internal(address: str) -> None:
         stub = notification_service_pb2_grpc.NotificationDelegateServiceStub(channel)
         # TODO: the payload for the message should be the ID of the camera source sending this notification
         request = notification_service_pb2.HelloRequest(name='World')
-        # TODO: replace with more robust logging
-        print(f"Sending notification to: {address}")
+        logging.info(f"Sending notification to: {address}")
         stub.SendNotification(request)
-        print("Sent notification")
+        logging.info("Sent notification")

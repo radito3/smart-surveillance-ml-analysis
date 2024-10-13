@@ -27,7 +27,7 @@ class ContextFactory:
                 return [lambda: CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection, ObjectDetector()),
                         lambda: PoseDetector(),
                         lambda: MultiPersonActivityRecognitionAnalyzer(
-                            CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection), 24, timedelta(seconds=2),12)]
+                            CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection), 24, timedelta(seconds=2), 12)]
             case "activity":
                 return [lambda: MultiPersonActivityRecognitionAnalyzer(ObjectDetector(), 24, timedelta(seconds=2), 12)]
             case "presence":
