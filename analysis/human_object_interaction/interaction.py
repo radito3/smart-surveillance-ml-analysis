@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 
 from analysis.single_frame_analyzer import SingleFrameAnalyzer
 from analysis.types import AnalysisType
@@ -16,18 +17,25 @@ class HumanObjectInteractionAnalyzer(SingleFrameAnalyzer):
     def analyze(self, frame: cv2.typing.MatLike, *args, **kwargs) -> list[int]:
         results = self.detector.detect(frame)
         results.summary()
-        # TODO: impl
-        # instead of having a dedicated model for this, a simpler and more computationally efficient method would be
-        # to take the object detection output from the YOLO model and measure the distance and/or border overlap
-        # between people and dangerous (predefined for particular scenes) items/objects
-
-        # a more accurate feature vector would take into consideration the euclidian distance between certain body
-        # parts and objects - if it's sufficiently small, then it would be reasonable to assume that the person is
-        # directly interacting with that object (e.g. holding a knife)
-        # + the amount of time an object has been "held" could hold some valuable info?
-        # + if there are rapid changes in position (high velocity) in both the object and the human body part closest
-        #   to it - that would probably mean rapid movement of a potentially dangerous object
-
-        # another potentially beneficial piece of information would be if there are objects with high velocities
-        # in the frame - that could mean something is thrown, falling, sliding, etc., which could be suspicious
+        # integrate with YOLO-pose results
         return []
+
+    # Helper function to calculate the Euclidean distance between two points
+    @staticmethod
+    def calculate_distance(point1, point2):
+        return np.linalg.norm(np.array(point1) - np.array(point2))
+
+    # Check if a person is interacting with an object based on hand keypoints proximity
+    # since the people sizes in frames can vary greatly, this distance threshold might not be sufficient
+    # try to judge the distance qualifier based on some proportion of the person?
+    def is_interacting(self, keypoints, object_box, distance_threshold=50):
+        # YOLO-Pose keypoints: [x1, y1] = right hand, [x2, y2] = left hand
+        right_hand = keypoints['right_hand']
+        left_hand = keypoints['left_hand']
+
+        # Calculate the center of the object's bounding box
+        obj_center = [(object_box[0] + object_box[2]) / 2, (object_box[1] + object_box[3]) / 2]
+
+        # Check if either hand is near the object
+        return (self.calculate_distance(right_hand, obj_center) < distance_threshold
+                or self.calculate_distance(left_hand, obj_center) < distance_threshold)

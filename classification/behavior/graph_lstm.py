@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.hipify.hipify_python import value
 from torch_geometric.nn import GCNConv, global_mean_pool, global_max_pool, SAGPooling
 from torch_geometric.data import Data
 from itertools import zip_longest
@@ -155,6 +154,22 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         if len(self.activities) > max(len(yolo_results), len(pose_results)):
             activities = np.delete(activities, len(activities) - 1)
 
+        # feature_vector_t = [
+        #     is_interacting,                   # Binary: Is there interaction or not
+        #     interaction_duration,             # How long the interaction has lasted
+        #     detected_object_class_index       # YOLO object class index (e.g., 0 for person, 39 for bottle, etc.)
+        #
+        #     # One-hot encoded body positions
+        #     standing, sitting, laying_down, crouching, bending_over, walking, ...,
+        #
+        #     body_orientation,                 # Body orientation (e.g., forward, left, right, backward)
+        #
+        #     velocity,                         # Current velocity (based on keypoints)
+        #     average_velocity,                 # Average velocity over a sequence of time steps
+        #
+        #     kinetics_400_activity             # Activity from Kinetics 400 dataset (encoded as an index)
+        # ]
+
         features = np.hstack((body_positions.reshape(-1, 1), velocities.reshape(-1, 1),
                               average_velocities.reshape(-1, 1), orientations.reshape(-1, 1),
                               activities.reshape(-1, 1)))
@@ -271,3 +286,62 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         # A positive angle indicates a counterclockwise rotation from the horizontal
         # A negative angle indicates a clockwise rotation from the horizontal
         return np.arctan2(delta_y, delta_x)
+
+    import numpy as np
+
+    @staticmethod
+    def __detect_body_position(keypoints):
+        # Extract keypoint coordinates
+        head = np.array(keypoints['head'])
+        left_shoulder = np.array(keypoints['left_shoulder'])
+        right_shoulder = np.array(keypoints['right_shoulder'])
+        left_hip = np.array(keypoints['left_hip'])
+        right_hip = np.array(keypoints['right_hip'])
+        left_knee = np.array(keypoints['left_knee'])
+        right_knee = np.array(keypoints['right_knee'])
+        left_ankle = np.array(keypoints['left_ankle'])
+        right_ankle = np.array(keypoints['right_ankle'])
+
+        # Average keypoints for symmetry
+        shoulders = (left_shoulder + right_shoulder) / 2
+        hips = (left_hip + right_hip) / 2
+        knees = (left_knee + right_knee) / 2
+        ankles = (left_ankle + right_ankle) / 2
+
+        # Calculate vertical distances between keypoints
+        shoulder_hip_dist = np.abs(shoulders[1] - hips[1])
+        hip_knee_dist = np.abs(hips[1] - knees[1])
+        knee_ankle_dist = np.abs(knees[1] - ankles[1])
+        head_ankle_dist = np.abs(head[1] - ankles[1])
+
+        # Thresholds (can be adjusted based on the use case)
+        standing_threshold = 0.4 * head_ankle_dist  # Standing requires vertical alignment
+        sitting_threshold = 0.2 * head_ankle_dist  # Sitting makes hips close to knees
+        laying_down_threshold = 50  # Low vertical distance between all points
+
+        # Initialize one-hot encoding for 5 body positions: [standing, sitting, laying down, crouching, bending over]
+        one_hot_position = [0, 0, 0, 0, 0]
+
+        # Detect body position
+        if knee_ankle_dist > standing_threshold and hip_knee_dist > standing_threshold:
+            # Standing: knees are far from ankles and hips are far from knees
+            one_hot_position[0] = 1  # Standing
+
+        elif hip_knee_dist < sitting_threshold and knee_ankle_dist > sitting_threshold:
+            # Sitting: hips are closer to knees but knees are far from ankles
+            one_hot_position[1] = 1  # Sitting
+
+        elif shoulder_hip_dist < laying_down_threshold and hip_knee_dist < laying_down_threshold:
+            # Laying down: All major points are close vertically
+            one_hot_position[2] = 1  # Laying down
+
+        elif hip_knee_dist < sitting_threshold and knee_ankle_dist < standing_threshold:
+            # Crouching: Hips are close to knees and knees close to ankles
+            one_hot_position[3] = 1  # Crouching
+
+        elif shoulders[1] > hips[1] and hip_knee_dist > standing_threshold:
+            # Bending over: Shoulders are significantly lower than hips
+            one_hot_position[4] = 1  # Bending over
+
+        return one_hot_position
+

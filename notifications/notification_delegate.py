@@ -21,6 +21,7 @@ def send_notification(address: str) -> None:
 
 
 def _send_notification_internal(address: str) -> None:
+    # strip the path, which contains the camera ID and use it in the message
     # TODO: secure channel with a TLS certificate
     with grpc.insecure_channel(address) as channel:
         stub = notification_service_pb2_grpc.NotificationDelegateServiceStub(channel)
