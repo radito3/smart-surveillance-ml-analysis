@@ -43,7 +43,7 @@ class ContextFactory:
                                                  dimensions=dimensions).to(get_device())
                     pretrained_weights_path = os.environ['GRAPH_LSTM_WEIGHTS_PATH']
                     if pretrained_weights_path is not None and len(pretrained_weights_path) != 0:
-                        c.load_state_dict(torch.load(pretrained_weights_path))
+                        c.load_state_dict(torch.load(pretrained_weights_path, map_location=get_device()))
                     # only on CUDA for the time being due to: https://github.com/pytorch/pytorch/issues/125254
                     c.compile() if torch.cuda.is_available() else None
                     return c

@@ -31,8 +31,8 @@ def sink(classifier_factory: Callable[[], Classifier], notif_webhook: str, sink_
     for dtype, data in QueueIterator[tuple[AnalysisType, Any]](sink_queue):
         with torch.no_grad():
             conf = classifier.classify_as_suspicious(dtype, data)
-            if conf > 0.6:  # experiment with threshold values
-                send_notification(notif_webhook)
+            # experiment with threshold values
+            send_notification(notif_webhook) if conf > 0.6 else None
 
 
 def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str, notif_webhook: str) -> None:
@@ -41,7 +41,10 @@ def main(video_url: str, ctx_factory: ContextFactory, ctx_type: str, notif_webho
     # if the kafka semantics are adopted, this can be moved to a dedicated producer class
     # and wrapper producer classes can be added for lower and upper bounding of fps
     video_source = cv2.VideoCapture(video_url, cv2.CAP_FFMPEG)
-    assert video_source.isOpened(), "Error opening video stream"
+    if not video_source.isOpened():
+        logging.error("Error opening video stream")
+        return
+
     width = video_source.get(cv2.CAP_PROP_FRAME_WIDTH)
     height = video_source.get(cv2.CAP_PROP_FRAME_HEIGHT)
 

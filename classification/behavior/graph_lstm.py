@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.hipify.hipify_python import value
 from torch_geometric.nn import GCNConv, global_mean_pool, global_max_pool, SAGPooling
 from torch_geometric.data import Data
 from itertools import zip_longest
@@ -35,7 +36,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
                  node_features: int,
                  window_size: int,
                  window_step: int,
-                 dimensions: tuple[float, float],
+                 dimensions: tuple[float, float] = (640, 640),
                  hidden_dim=16,
                  pooling_channels=16,
                  pooling_ratio=0.8,
@@ -56,6 +57,15 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         self.pose_buffer = []
         self.velocities = {}
         self.activities = None
+
+    def set_dimensions(self, dims: tuple[float, float]):
+        self.width, self.height = dims
+
+    def set_window_size(self, size: int):
+        self.window_size = size
+
+    def set_window_step(self, step: int):
+        self.window_step = step
 
     def forward(self, graph_data_sequences):
         # graph_data_sequences is a list of graph data for each time step

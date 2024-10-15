@@ -1,19 +1,11 @@
-# create all models, model variations with different neurons per layer, different number of layers, etc.
-# download criminal activity datasets
-# find and download surveillance footage of normal behaviour
-# split 70% training, 15% validation, and 15% test
-# create processes for each model
-# train 100 epochs, check accuracy, repeat training until the difference in accuracy between validation iterations
-#    is less than a threshold
 import logging
-import time
+import sys
 from queue import Queue
 import cv2
 import numpy as np
 import torch
-from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader, Dataset
-from datetime import datetime, timedelta
+from torch.utils.data import random_split, DataLoader, Dataset
+from datetime import timedelta
 from sklearn.metrics import recall_score, f1_score, roc_auc_score
 
 from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
@@ -23,6 +15,7 @@ from analysis.pose_detection.pose_detector import PoseDetector
 from analysis.types import AnalysisType
 from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
 from classification.classifier import Classifier
+from util.device import get_device
 
 
 class VideoDataset(Dataset):
@@ -39,139 +32,148 @@ class VideoDataset(Dataset):
         return video_path, label
 
 
-# Create data loaders for our datasets; shuffle for training, not for validation
-training_loader = DataLoader(VideoDataset([], []), batch_size=4, shuffle=True)
-validation_loader = DataLoader(VideoDataset([], []), batch_size=4, shuffle=False)
-
-hyperparams = {
-    'hidden_dim': [16, 32, 64],
-    'pooling_channels': [16, 32, 64],
-    'pooling_ratio': [0.8, 0.6],
-    'global_pool_type': ['mean', 'max'],
-    'lstm_layers': [1, 2]
-}
-
-model = GraphBasedLSTMClassifier(node_features=5, window_size=48, window_step=12, dimensions=(1920, 1080))
-model.train()
-optimizer = torch.optim.Adam(model.parameters())
-loss_fn = torch.nn.BCELoss()
-
-
-def run_pipeline(video_url: str, classifier: Classifier) -> float:
+# do not bound the fps to not bottleneck the training time
+def run_pipeline(video_url: str, classifier: GraphBasedLSTMClassifier) -> float:
     video_source = cv2.VideoCapture(video_url, cv2.CAP_FFMPEG)
-    assert video_source.isOpened(), "Error opening video"
-    target_fps: int = 24
-    target_frame_interval: float = 1./target_fps
-    prev_timestamp: float = 0
+    if not video_source.isOpened():
+        logging.error(f"Error opening video {video_url}")
+        return -1
+
+    width = video_source.get(cv2.CAP_PROP_FRAME_WIDTH)
+    height = video_source.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    fps = video_source.get(cv2.CAP_PROP_FPS)
+
+    classifier.set_dimensions((width, height))
+    classifier.set_window_size(2 * int(fps))
+    classifier.set_window_step(int(fps) // 2)
 
     cache_queue = Queue(maxsize=1)
     people_detector = CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection, ObjectDetector())
     analyzers = [people_detector, PoseDetector(),
                  MultiPersonActivityRecognitionAnalyzer(CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection),
-                                                        target_fps, timedelta(seconds=2), target_fps // 2)]
+                                                        # the native fps is used because the proportions (X sec window
+                                                        # with Y frames step) of the buffer window are important,
+                                                        # not the fps value itself
+                                                        int(fps), timedelta(seconds=2), int(fps) // 2)]
 
     predictions: list[float] = []
     while video_source.isOpened():
-        time_elapsed: float = time.time() - prev_timestamp
         ok, frame = video_source.read()
         if not ok:
             break
 
-        if time_elapsed > target_frame_interval:
-            prev_timestamp = time.time()
-            # sequential processing will be slower, but that's okay for training
-            results = [(analyzer.analysis_type(), analyzer.analyze(frame)) for analyzer in analyzers]
-            for dtype, data in results:
-                conf = classifier.classify_as_suspicious(dtype, data)
-                if conf != 0:
-                    predictions.append(conf)
+        # sequential processing will be slower, but that's okay for training
+        results = [(analyzer.analysis_type(), analyzer.analyze(frame)) for analyzer in analyzers]
+        for dtype, data in results:
+            conf = classifier.classify_as_suspicious(dtype, data)
+            predictions.append(conf) if conf != 0 else None
     video_source.release()
     return np.mean(predictions).__float__()
 
 
-def train_one_epoch(epoch_index, tb_writer):
-    running_loss = 0.
-    last_loss = 0.
+def train_model(model, train_loader, val_loader, epochs):
+    criterion = torch.nn.BCELoss()
+    optimizer = torch.optim.Adam(model.parameters())
 
-    # Here, we use enumerate(training_loader) instead of
-    # iter(training_loader) so that we can track the batch
-    # index and do some intra-epoch reporting
-    for i, data in enumerate(training_loader):
-        inputs, labels = data
-        optimizer.zero_grad()
-        outputs = run_pipeline(inputs, model)
-        loss = loss_fn(outputs, labels)
-        loss.backward()
-        # Adjust learning weights
-        optimizer.step()
-        running_loss += loss.item()
+    for epoch in range(epochs):
+        model.train()
+        running_loss = 0.0
+        true_labels = []
+        predicted_probs = []
 
-        # Assuming you have true labels (y_true) and predicted probabilities (y_pred_probs)
-        y_pred = (outputs >= 0.5).astype(int)
+        for inputs, labels in train_loader:
+            # Zero the parameter gradients
+            optimizer.zero_grad()
 
-        recall = recall_score(y_true, y_pred)
-        f1 = f1_score(y_true, y_pred)
-        roc_auc = roc_auc_score(y_true, outputs)
+            outputs = run_pipeline(inputs.item(), model)
+            if outputs == -1:
+                # video could not be opened
+                continue
 
-        if i % 1000 == 999:
-            last_loss = running_loss / 1000  # loss per batch
-            logging.debug('  batch {} loss: {}'.format(i + 1, last_loss))
-            tb_x = epoch_index * len(training_loader) + i + 1
-            tb_writer.add_scalar('Loss/train', last_loss, tb_x)
-            running_loss = 0.
+            loss = criterion(outputs, labels)
+            running_loss += loss.item()
 
-    return last_loss
+            # Backward pass and optimize
+            loss.backward()
+            optimizer.step()
+
+            true_labels.append(labels.item())
+            predicted_probs.append(outputs)
+
+        print(f'Epoch [{epoch+1}/{epochs}] - '
+              f'Train Loss: {running_loss/len(train_loader):.4f}')
+
+        # there is no need to evaluate on every epoch, but we need it often due to the complexity of each epoch
+        if epochs % 5 == 0 and epoch != 0:
+            val_loss, recall, f1, roc_auc = evaluate_model(model, val_loader, criterion)
+
+            print(f'Val Loss: {val_loss:.4f} - '
+                  f'Recall: {recall:.4f} - F1 Score: {f1:.4f} - ROC AUC: {roc_auc:.4f}')
+
+        torch.save(model.state_dict(), f'model_{2}_epoch_{epoch+1}.pth')
 
 
-# Initializing in a separate cell so we can easily add more epochs to the same run
-timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-writer = SummaryWriter('runs/fashion_trainer_{}'.format(timestamp))
-epoch_number = 0
-
-EPOCHS = 5
-
-best_vloss = 1_000_000.
-
-# Perform k-fold cross-validation to ensure your model generalizes well across different
-# scenes and configurations
-
-for epoch in range(EPOCHS):
-    logging.debug('EPOCH {}:'.format(epoch_number + 1))
-
-    # Make sure gradient tracking is on, and do a pass over the data
-    model.train(True)
-    avg_loss = train_one_epoch(epoch_number, writer)
-
-    running_vloss = 0.0
-    # Set the model to evaluation mode, disabling dropout and using population
-    # statistics for batch normalization.
+def evaluate_model(model, data_loader, criterion):
     model.eval()
+    running_loss = 0.0
+    true_labels = []
+    predicted_probs = []
 
-    # Disable gradient computation and reduce memory consumption.
     with torch.no_grad():
-        for i, vdata in enumerate(validation_loader):
-            vinputs, vlabels = vdata
-            voutputs = model(vinputs)
-            vloss = loss_fn(voutputs, vlabels)
-            running_vloss += vloss
+        for inputs, labels in data_loader:
+            outputs = run_pipeline(inputs.item(), model)
+            if outputs == -1:
+                # video could not be opened
+                continue
 
-    avg_vloss = running_vloss / (i + 1)
-    logging.debug('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
+            loss = criterion(outputs, labels)
+            running_loss += loss.item()
 
-    # Log the running loss averaged per batch
-    # for both training and validation
-    writer.add_scalars('Training vs. Validation Loss',
-                       { 'Training' : avg_loss, 'Validation' : avg_vloss },
-                       epoch_number + 1)
-    writer.flush()
+            true_labels.append(labels.item())
+            predicted_probs.append(outputs)
 
-    # Track best performance, and save the model's state
-    if avg_vloss < best_vloss:
-        best_vloss = avg_vloss
-        model_path = 'model_{}_{}.pt'.format(timestamp, epoch_number)
-        torch.save(model.state_dict(), model_path)
+    # Compute binary predictions from probabilities
+    predicted_labels = [1 if prob >= 0.6 else 0 for prob in predicted_probs]
 
-    epoch_number += 1
+    # Calculate metrics
+    recall = recall_score(true_labels, predicted_labels)
+    f1 = f1_score(true_labels, predicted_labels)
+    roc_auc = roc_auc_score(true_labels, predicted_probs)
 
-# to load a saved version of the model
-saved_model.load_state_dict(torch.load(PATH))
+    return running_loss / len(data_loader), recall, f1, roc_auc
+
+if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        logging.error("Invalid command-line arguments. Required <num_epochs> <model_config>")
+        sys.exit(1)
+
+    epochs = int(sys.argv[1])
+    config = sys.argv[2]
+
+    # TODO: load both the criminal activity videos and normal surveillance videos
+    dataset = VideoDataset([], [])
+
+    train_size = int(0.7 * len(dataset))  # 70% for training
+    val_size = int(0.15 * len(dataset))   # 15% for validation
+    test_size = len(dataset) - train_size - val_size  # 15% for testing
+
+    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
+
+    # batch size of 1 because the data points are video URLs, and they need pre-processing before being passed to the model
+    training_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+    validation_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+
+    hyperparams = {
+        'hidden_dim': [16, 32, 64],
+        'pooling_channels': [16, 32, 64],
+        'pooling_ratio': [0.8, 0.6],
+        'global_pool_type': ['mean', 'max'],
+        'lstm_layers': [1, 2]
+    }
+    # TODO: set the hyperparams based on the config
+    model = GraphBasedLSTMClassifier(node_features=5, window_size=-1, window_step=-1).to(get_device())
+
+    train_model(model, training_loader, validation_loader, epochs)
+
+    # TODO: run the model on the test_loader and output its final accuracy for the experiment
