@@ -287,8 +287,6 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         # A negative angle indicates a clockwise rotation from the horizontal
         return np.arctan2(delta_y, delta_x)
 
-    import numpy as np
-
     @staticmethod
     def __detect_body_position(keypoints):
         # Extract keypoint coordinates
