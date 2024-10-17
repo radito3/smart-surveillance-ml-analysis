@@ -9,12 +9,9 @@ from datetime import timedelta
 from sklearn.metrics import recall_score, f1_score, roc_auc_score
 
 from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
-from analysis.analyzer_with_cache_aside import CacheAsideAnalyzer
 from analysis.object_detection.detector import ObjectDetector
 from analysis.pose_detection.pose_detector import PoseDetector
-from analysis.types import AnalysisType
 from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
-from classification.classifier import Classifier
 from util.device import get_device
 
 
@@ -48,13 +45,13 @@ def run_pipeline(video_url: str, classifier: GraphBasedLSTMClassifier) -> float:
     classifier.set_window_step(int(fps) // 2)
 
     cache_queue = Queue(maxsize=1)
-    people_detector = CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection, ObjectDetector())
-    analyzers = [people_detector, PoseDetector(),
-                 MultiPersonActivityRecognitionAnalyzer(CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection),
-                                                        # the native fps is used because the proportions (X sec window
-                                                        # with Y frames step) of the buffer window are important,
-                                                        # not the fps value itself
-                                                        int(fps), timedelta(seconds=2), int(fps) // 2)]
+    # people_detector = CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection, ObjectDetector())
+    # analyzers = [people_detector, PoseDetector(),
+    #              MultiPersonActivityRecognitionAnalyzer(CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection),
+    #                                                     # the native fps is used because the proportions (X sec window
+    #                                                     # with Y frames step) of the buffer window are important,
+    #                                                     # not the fps value itself
+    #                                                     int(fps), timedelta(seconds=2), int(fps) // 2)]
 
     predictions: list[float] = []
     while video_source.isOpened():
@@ -65,7 +62,7 @@ def run_pipeline(video_url: str, classifier: GraphBasedLSTMClassifier) -> float:
         # sequential processing will be slower, but that's okay for training
         results = [(analyzer.analysis_type(), analyzer.analyze(frame)) for analyzer in analyzers]
         for dtype, data in results:
-            conf = classifier.classify_as_suspicious(dtype, data)
+            # conf = classifier.classify_as_suspicious(dtype, data)
             predictions.append(conf) if conf != 0 else None
     video_source.release()
     return np.mean(predictions).__float__()
@@ -133,7 +130,7 @@ def evaluate_model(model, data_loader, criterion):
             predicted_probs.append(outputs)
 
     # Compute binary predictions from probabilities
-    predicted_labels = [1 if prob >= 0.6 else 0 for prob in predicted_probs]
+    predicted_labels = [1 if prob > 0.6 else 0 for prob in predicted_probs]
 
     # Calculate metrics
     recall = recall_score(true_labels, predicted_labels)

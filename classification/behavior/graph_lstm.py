@@ -3,11 +3,13 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import GCNConv, global_mean_pool, global_max_pool, SAGPooling
 from torch_geometric.data import Data
-from itertools import zip_longest
+# from itertools import zip_longest
 from math import sqrt
 
-from analysis.types import AnalysisType
-from classification.classifier import Classifier
+from messaging.aggregate_consumer import AggregateConsumer
+from messaging.broker_interface import Broker
+from messaging.consumer import Consumer
+from messaging.producer import Producer
 from util.device import get_device
 
 
@@ -30,8 +32,9 @@ class GraphNetWithSAGPooling(torch.nn.Module):
         return x
 
 
-class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
+class GraphBasedLSTMClassifier(torch.nn.Module, Producer, AggregateConsumer):
     def __init__(self,
+                 broker: Broker,
                  node_features: int,
                  window_size: int,
                  window_step: int,
@@ -42,6 +45,10 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
                  global_pool_type='mean',
                  lstm_layers=1):
         torch.nn.Module.__init__(self)
+        Producer.__init__(self, broker)
+        AggregateConsumer.__init__(self, broker, ['pose_estimation_results', 'object_detection_results',
+                                                  'activity_estimation_results'], pose_estimation_results=window_size,
+                                   object_detection_results=window_size, step=window_step)
 
         self.gnn = GraphNetWithSAGPooling(node_features, hidden_dim, pooling_channels, pooling_ratio, global_pool_type)
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, num_layers=lstm_layers, batch_first=True,
@@ -51,11 +58,8 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         self.window_size = window_size
         self.window_step = window_step  # every N frames move to a new window
         self.width, self.height = dimensions
-        self.prev_detections: list[torch.Tensor] = []
-        self.yolo_buffer = []
-        self.pose_buffer = []
+        self.prev_detections = []
         self.velocities = {}
-        self.activities = None
 
     def set_dimensions(self, dims: tuple[float, float]):
         self.width, self.height = dims
@@ -65,6 +69,37 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
     def set_window_step(self, step: int):
         self.window_step = step
+
+    def init(self) -> bool:
+        # the video source producer needs to be initialized before this one
+        # otherwise, the topic would not exist
+        temp_consumer = OneShotConsumer(self.broker, 'video_dimensions', self)
+        temp_consumer.run()
+        return True
+
+    def get_name(self) -> str:
+        return 'graph-lstm-classifier-app'
+
+    def consume_message(self, message: dict[str, any]):
+        yolo_buffer = message['object_detection_results']
+        pose_buffer = message['pose_detections_results']
+        detected_activities = message['activity_detection_results']
+
+        graph_data_sequences = [self._create_graph(yolo_results, pose_results, detected_activities) for
+                                yolo_results, pose_results in
+                                zip(yolo_buffer, pose_buffer)]
+
+        if not self.training:
+            with torch.no_grad():
+                predictions = self.__call__(graph_data_sequences)
+        else:
+            predictions = self.__call__(graph_data_sequences)
+
+        result = torch.flatten(predictions).cpu().item()
+        self.produce_value('classification_results', result)
+
+    def cleanup(self):
+        self.produce_value('classification_results', None)
 
     def forward(self, graph_data_sequences):
         # graph_data_sequences is a list of graph data for each time step
@@ -79,33 +114,14 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         predictions = self.output_layer(lstm_out[:, -1, :])  # Classify based on the output of the last time step
         return torch.sigmoid(predictions)
 
-    def classify_as_suspicious(self, dtype: AnalysisType, vector: list[any]) -> float:
-        if (len(self.yolo_buffer) < self.window_size
-                or len(self.pose_buffer) < self.window_size
-                or self.activities is None):
-            self.yolo_buffer.append(vector) if dtype == AnalysisType.PersonDetection else None
-            self.pose_buffer.append(vector) if dtype == AnalysisType.PoseEstimation else None
-            self.activities = vector if dtype == AnalysisType.ActivityDetection else None
-            return 0
-
-        graph_data_sequences = [self._create_graph(yolo_results, pose_results) for yolo_results, pose_results in
-                                zip(self.yolo_buffer, self.pose_buffer)]
-
-        self.yolo_buffer = self.yolo_buffer[self.window_step:]
-        self.pose_buffer = self.pose_buffer[self.window_step:]
-        self.activities = None
-
-        predictions: torch.Tensor = self.forward(graph_data_sequences)
-        return torch.flatten(predictions.cpu()).item()
-
-    def _create_graph(self, yolo_results, pose_results):
-        nodes, edges, edge_weights = self._extract_graph(yolo_results, pose_results)
+    def _create_graph(self, yolo_results, pose_results, detected_activities):
+        nodes, edges, edge_weights = self._extract_graph(yolo_results, pose_results, detected_activities)
         return Data(x=torch.tensor(nodes, dtype=torch.float),
                     edge_index=torch.tensor(edges, dtype=torch.long).t().contiguous(),
                     edge_attr=torch.tensor(edge_weights, dtype=torch.float)
                     )
 
-    def _extract_graph(self, yolo_results, pose_results):
+    def _extract_graph(self, yolo_results, pose_results, detected_activities):
         """
         The node features are:
          - orientation (where a person is facing)
@@ -118,7 +134,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
         """
 
         # we don't need the confidence scores here
-        detections = [(box_tensor, box_id) for box_tensor, box_id, _ in yolo_results]
+        detections = [(box_tensor, box_id) for box_tensor, box_id, cls, _ in yolo_results if cls == 0]
 
         centroids_current = np.array([self._calc_centroid(bbox) for bbox, _ in detections])
 
@@ -134,7 +150,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
         body_positions = np.array([self._classify_position(keypoints) for keypoints in pose_results], dtype=np.float32)
 
-        activities = np.array(self.activities, dtype=np.float32).flatten()
+        activities = np.array(detected_activities, dtype=np.float32).flatten()
 
         # these paddings aren't great...
         if len(yolo_results) > len(pose_results):
@@ -148,10 +164,10 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
                 average_velocities = np.append(average_velocities, 0)
                 centroids_current = np.append(centroids_current, np.array([0, 0]))
 
-        if len(self.activities) < max(len(yolo_results), len(pose_results)):
-            for _ in range(max(len(yolo_results), len(pose_results)) - len(self.activities)):
+        if len(activities) < max(len(yolo_results), len(pose_results)):
+            for _ in range(max(len(yolo_results), len(pose_results)) - len(activities)):
                 activities = np.append(activities, -1)
-        if len(self.activities) > max(len(yolo_results), len(pose_results)):
+        if len(activities) > max(len(yolo_results), len(pose_results)):
             activities = np.delete(activities, len(activities) - 1)
 
         # feature_vector_t = [
@@ -209,15 +225,21 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
     def _calc_velocities(self, detections) -> np.array:
         if len(self.prev_detections) > 0:
+            prev_detections = self.prev_detections.copy()
+
             if len(detections) > len(self.prev_detections):
-                generator = zip_longest(detections, self.prev_detections,
-                                        fillvalue=(np.zeros(4, dtype=np.float32), -1))
-            else:
-                generator = zip(detections,
-                                filter(lambda tpl: self.__contains_by_id(detections, tpl[1]), self.prev_detections))
+                for _ in range(len(detections) - len(prev_detections)):
+                    prev_detections.append((np.zeros(4, dtype=np.float32), -1))
+                # generator = zip_longest(detections, self.prev_detections,
+                #                         fillvalue=(np.zeros(4, dtype=np.float32), -1))
+            # else:
+            #     generator = zip(detections,
+            #                     filter(lambda tpl: self.__contains_by_id(detections, tpl[1]), self.prev_detections))
             displacement = [self._calc_centroid(current_bbox) - self._calc_centroid(prev_bbox)
                             if current_id == prev_id else np.zeros(2, dtype=np.float32)
-                            for (current_bbox, current_id), (prev_bbox, prev_id) in generator
+                            for (current_bbox, current_id), (prev_bbox, prev_id) in
+                            zip(detections,
+                                filter(lambda tpl: self.__contains_by_id(detections, tpl[1]), prev_detections))
                             ]
 
             return np.linalg.norm(displacement, axis=1)
@@ -343,3 +365,15 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Classifier):
 
         return one_hot_position
 
+
+class OneShotConsumer(Consumer):
+
+    def __init__(self, broker: Broker, topic: str, classifier: GraphBasedLSTMClassifier):
+        super().__init__(broker, topic)
+        self.classifier = classifier
+
+    def get_name(self) -> str:
+        return 'one-shot-consumer'
+
+    def consume_message(self, message: tuple[float, float]):
+        self.classifier.set_dimensions(message)

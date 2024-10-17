@@ -1,53 +1,40 @@
 import cv2.typing
 import torch
 import ultralytics.engine.results
-from ultralytics.utils.plotting import Annotator, colors
 from ultralytics import YOLO
 
-from analysis.single_frame_analyzer import SingleFrameAnalyzer
-from analysis.types import AnalysisType
+from messaging.broker_interface import Broker
+from messaging.consumer import Consumer
+from messaging.producer import Producer
 from util.device import get_device
 
 
-class ObjectDetector(SingleFrameAnalyzer):
+class ObjectDetector(Producer, Consumer):
 
-    def __init__(self):
+    def __init__(self, broker: Broker):
+        Producer.__init__(self, broker)
+        Consumer.__init__(self, broker, 'frame_source')
+        self.model = None
+
+    def get_name(self) -> str:
+        return 'object-detection-app'
+
+    # split the initialization of the model in a separate method, so it can be called from within the worker thread
+    # instead of the main thread
+    def init(self) -> bool:
         self.model = YOLO('yolov10m.pt').to(get_device())
         self.model.compile() if torch.cuda.is_available() else None
+        return True
 
-    def analysis_type(self) -> AnalysisType:
-        return AnalysisType.PersonDetection
-
-    def analyze(self, frame: cv2.typing.MatLike, *args, **kwargs) -> list[any]:
-        results = self.detect(frame, True)
-        # is it necessary for copying to CPU memory?
+    def consume_message(self, frame: cv2.typing.MatLike):
+        with torch.no_grad():
+            # we need `track` instead of `predict` because we need to keep track of objects between frames
+            # this may not be needed if we aren't using the GraphLSTM classifier
+            # persist=True to preserve tracker IDs between calls
+            results = self.model.track(frame, persist=True, verbose=False)[0]
         boxes: ultralytics.engine.results.Boxes = results.boxes.cpu()  # bounding boxes
-        if len(boxes.data) == 0:
-            return []
+        if len(boxes.data) != 0:
+            self.produce_value('object_detection_results', [*zip(boxes.xyxy, boxes.id, boxes.cls, boxes.conf)])
 
-        return [*zip(boxes.xyxy, boxes.id, boxes.conf)]
-
-    @torch.no_grad()
-    def detect(self, frame: cv2.typing.MatLike, people_only: bool = False) -> ultralytics.engine.results.Results:
-        if people_only:
-            classes = [0]  # class 0 is 'person'
-        else:
-            classes = None
-
-        # for debugging visually:
-        # boxes = results[i].boxes.xyxy.cpu()
-        # clss = results[i].boxes.cls.cpu().tolist()
-        # track_ids = results[i].boxes.id.int().cpu().tolist()
-        #
-        # annotator = Annotator(frame, line_width=2)
-        #
-        # for box, cls, track_id in zip(boxes, clss, track_ids):
-        #     annotator.box_label(box, color=colors(int(cls), True), label=f"{names[int(cls)]} {track_id}")
-
-        # we need `track` instead of `predict` because we need to keep track of objects between frames
-        # this may not be needed if we aren't using the GraphLSTM classifier
-        return self.model.track(frame,
-                                persist=True,  # persist tracker IDs between calls
-                                verbose=False,
-                                classes=classes,
-                                )[0]
+    def cleanup(self):
+        self.produce_value('object_detection_results', None)

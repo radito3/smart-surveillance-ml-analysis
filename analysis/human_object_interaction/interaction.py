@@ -1,22 +1,10 @@
 import cv2
 import numpy as np
 
-from analysis.single_frame_analyzer import SingleFrameAnalyzer
-from analysis.types import AnalysisType
-from analysis.object_detection.detector import ObjectDetector
 
-
-class HumanObjectInteractionAnalyzer(SingleFrameAnalyzer):
-
-    def __init__(self, detector: ObjectDetector):
-        self.detector = detector
-
-    def analysis_type(self) -> AnalysisType:
-        return AnalysisType.HumanObjectInteraction
+class HumanObjectInteractionAnalyzer:
 
     def analyze(self, frame: cv2.typing.MatLike, *args, **kwargs) -> list[int]:
-        results = self.detector.detect(frame)
-        results.summary()
         # integrate with YOLO-pose results
         return []
 

@@ -1,10 +1,8 @@
 import logging
 import os
-from analysis.types import AnalysisType
-from classification.classifier import Classifier
 
 
-class SuspiciousActivityClassifier(Classifier):
+class SuspiciousActivityClassifier:
 
     def __init__(self):
         env_whitelist = os.environ['ACTIVITY_WHITELIST']
@@ -19,8 +17,8 @@ class SuspiciousActivityClassifier(Classifier):
         else:
             self.whitelist_activities_indices = [2, 8]  # temp
 
-    def classify_as_suspicious(self, dtype: AnalysisType, vector: list[any]) -> float:
-        if dtype != AnalysisType.ActivityDetection or len(vector) == 0:
+    def classify_as_suspicious(self, dtype: any, vector: list[any]) -> float:
+        if dtype != 0 or len(vector) == 0:
             return 0
 
         for activity_idx in vector:

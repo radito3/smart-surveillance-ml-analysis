@@ -1,19 +1,15 @@
 import torch
-from datetime import timedelta
 import cv2
 import csv
 import numpy as np
 from torchvision.models.video import r3d_18, R3D_18_Weights
 
-from analysis.types import AnalysisType
-from analysis.video_buffer_analyzer import VideoBufferAnalyzer
 from util.device import get_device
 
 
-class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
+class ActivityRecognitionAnalyzer:
 
-    def __init__(self, fps: int, window_size: timedelta, window_step: int):
-        super().__init__(fps, window_size, window_step)
+    def __init__(self):
         self.device = get_device()
         self.model = r3d_18(weights=R3D_18_Weights.KINETICS400_V1).to(self.device)
         self.model.compile() if torch.cuda.is_available() else None
@@ -22,19 +18,16 @@ class ActivityRecognitionAnalyzer(VideoBufferAnalyzer):
             reader = csv.DictReader(csvfile)
             self.kinetics_classes = [row['name'] for row in reader]
 
-    def analysis_type(self) -> AnalysisType:
-        return AnalysisType.ActivityDetection
-
-    def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> list[any]:
+    def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> int:
         preprocessed_frames = self.__preprocess_frames(window)
 
         with torch.no_grad():
             outputs = self.model(preprocessed_frames)
             probabilities = torch.nn.functional.softmax(outputs, dim=1)
             # should this be copied to CPU memory?
-            predicted_class = torch.argmax(probabilities, dim=1).item()
+            predicted_class = int(torch.argmax(probabilities, dim=1).item())
 
-        return [predicted_class]
+        return predicted_class
 
     def __preprocess_frames_cpu(self, frames, input_size=(112, 112)):
         # Pre-allocate a NumPy array for all frames in CHW format

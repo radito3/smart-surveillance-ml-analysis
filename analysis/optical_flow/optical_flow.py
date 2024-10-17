@@ -1,13 +1,22 @@
 import cv2
 import numpy as np
-from analysis.double_frame_analyzer import DoubleFrameAnalyzer
-from analysis.types import AnalysisType
 
 
-class OpticalFlowAnalyzer(DoubleFrameAnalyzer):
+class OpticalFlowAnalyzer:
 
-    def analysis_type(self) -> AnalysisType:
-        return AnalysisType.OpticalFlow
+    def __init__(self):
+        self._pref_frame: cv2.typing.MatLike = None
+
+    def analyze(self, frame: cv2.typing.MatLike) -> list[any]:
+        if self._pref_frame is None:
+            self._pref_frame = frame
+            return []
+        result = self.analyze_with_previous_frame(self._pref_frame, frame)
+        self._pref_frame = frame
+        return result
+
+    # def analysis_type(self) -> AnalysisType:
+    #     return AnalysisType.OpticalFlow
 
     # FIXME: this produces a huge list for each frame; consider removing / only using it in a special case
     def analyze_with_previous_frame(self, previous: cv2.typing.MatLike, current: cv2.typing.MatLike) -> list[any]:
