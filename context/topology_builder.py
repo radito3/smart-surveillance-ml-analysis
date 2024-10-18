@@ -1,16 +1,13 @@
-import os
 from datetime import timedelta
-import torch
 from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
 from classification.activity.suspicious_activity_classifier import SuspiciousActivityClassifier
-from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
+from classification.behavior.graph_lstm import CompositeBehaviouralClassifier
 from classification.people_presence.simple_presence_classifier import SimplePresenceClassifier
 from analysis.object_detection.object_detector import ObjectDetector
 from analysis.pose_detection.pose_detector import PoseDetector
 from messaging.message_broker import MessageBroker
 from messaging.sink.binary_result_consumer import BinaryResultConsumer
 from messaging.sink.probability_result_consumer import ProbabilityResultConsumer
-from util.device import get_device
 
 
 class TopologyBuilder:
@@ -24,14 +21,7 @@ class TopologyBuilder:
                 pose_detector = PoseDetector(broker)
                 activity_detector = MultiPersonActivityRecognitionAnalyzer(broker, 24, timedelta(seconds=2), 12)
 
-                classifier = GraphBasedLSTMClassifier(broker, 5, 48, 12)
-                # FIXME: this fails with a key error
-                # TODO: find a way to check if the key exists in the env prior to attempting to get it
-                # pretrained_weights_path = os.environ['GRAPH_LSTM_WEIGHTS_PATH']
-                # if pretrained_weights_path is not None and len(pretrained_weights_path) != 0:
-                #     classifier.load_state_dict(torch.load(pretrained_weights_path, map_location=get_device()))
-                # only on CUDA due to: https://github.com/pytorch/pytorch/issues/125254
-                classifier.compile() if torch.cuda.is_available() else None
+                classifier = CompositeBehaviouralClassifier(broker, 5, 48, 12)
 
                 sink = ProbabilityResultConsumer(broker, notification_webhook_url)
 

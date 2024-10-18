@@ -32,90 +32,26 @@ class GraphNetWithSAGPooling(torch.nn.Module):
         return x
 
 
-class GraphBasedLSTMClassifier(torch.nn.Module, Producer, AggregateConsumer):
+class GraphBasedLSTMClassifier(torch.nn.Module):
     def __init__(self,
-                 broker: Broker,
                  node_features: int,
-                 window_size: int,
-                 window_step: int,
-                 dimensions: tuple[float, float] = (640, 640),
-                 hidden_dim=16,
-                 pooling_channels=16,
-                 pooling_ratio=0.8,
-                 global_pool_type='mean',
-                 lstm_layers=1):
+                 hidden_dim: int = 16,
+                 pooling_channels: int = 16,
+                 pooling_ratio: float = 0.8,
+                 global_pool_type: str = 'mean',
+                 lstm_layers: int = 1):
         torch.nn.Module.__init__(self)
-        Producer.__init__(self, broker)
-        AggregateConsumer.__init__(self, broker, ['pose_detection_results', 'object_detection_results',
-                                                  'activity_detection_results'], pose_detection_results=window_size,
-                                   object_detection_results=window_size, step=window_step)
+        self.gnn = GraphNetWithSAGPooling(node_features, hidden_dim, pooling_channels, pooling_ratio, global_pool_type)
+        self.lstm = nn.LSTM(hidden_dim, hidden_dim, num_layers=lstm_layers, batch_first=True,
+                            dropout=0.2 if lstm_layers > 1 else 0)
+        self.output_layer = nn.Linear(hidden_dim, 1)
 
-        # FIXME: this breaks the module attributes registration...
-        #  the submodules need to be assigned here instead of in init()
-        # TODO: find a way to have a late initialization
-        self.gnn = None
-        self.lstm = None
-        self.output_layer = None
-
-        self.node_features = node_features
-        self.hidden_dim = hidden_dim
-        self.pooling_channels = pooling_channels
-        self.pooling_ratio = pooling_ratio
-        self.global_pool_type = global_pool_type
-        self.lstm_layers = lstm_layers
-
-        self.window_size = window_size
-        self.window_step = window_step  # every N frames move to a new window
-        self.width, self.height = dimensions
+        self.width, self.height = 640, 640
         self.prev_detections = []
         self.velocities = {}
 
     def set_dimensions(self, dims: tuple[float, float]):
         self.width, self.height = dims
-
-    def set_window_size(self, size: int):
-        self.window_size = size
-
-    def set_window_step(self, step: int):
-        self.window_step = step
-
-    def init(self):
-        # FIXME: the 'to(device)' is only a stopgap solution for the threading issue with models (the attribute setting
-        #  of submodules must be in the constructor, not in the init() method for PyTorch to correctly handle device
-        #  memory mapping and training parameter handling
-        self.gnn = GraphNetWithSAGPooling(self.node_features, self.hidden_dim, self.pooling_channels,
-                                          self.pooling_ratio, self.global_pool_type).to(get_device())
-        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, num_layers=self.lstm_layers, batch_first=True,
-                            dropout=0.2 if self.lstm_layers > 1 else 0).to(get_device())
-        # Outputting a single probability
-        self.output_layer = nn.Linear(self.hidden_dim, 1).to(get_device())
-
-        temp_consumer = OneShotConsumer(self.broker, 'video_dimensions', self)
-        temp_consumer.run()
-
-    def get_name(self) -> str:
-        return 'graph-lstm-classifier-app'
-
-    def consume_message(self, message: dict[str, any]):
-        yolo_buffer = message['object_detection_results']
-        pose_buffer = message['pose_detection_results']
-        detected_activities = message['activity_detection_results']
-
-        graph_data_sequences = [self._create_graph(yolo_results, pose_results, detected_activities) for
-                                yolo_results, pose_results in
-                                zip(yolo_buffer, pose_buffer)]
-
-        if not self.training:
-            with torch.no_grad():
-                predictions = self.__call__(graph_data_sequences)
-        else:
-            predictions = self.__call__(graph_data_sequences)
-
-        result = torch.flatten(predictions).cpu().item()
-        self.produce_value('classification_results', result)
-
-    def cleanup(self):
-        self.produce_value('classification_results', None)
 
     def forward(self, graph_data_sequences):
         # graph_data_sequences is a list of graph data for each time step
@@ -130,7 +66,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Producer, AggregateConsumer):
         predictions = self.output_layer(lstm_out[:, -1, :])  # Classify based on the output of the last time step
         return torch.sigmoid(predictions)
 
-    def _create_graph(self, yolo_results, pose_results, detected_activities):
+    def create_graph(self, yolo_results, pose_results, detected_activities):
         nodes, edges, edge_weights = self._extract_graph(yolo_results, pose_results, detected_activities)
         return Data(x=torch.tensor(nodes, dtype=torch.float),
                     edge_index=torch.tensor(edges, dtype=torch.long).t().contiguous(),
@@ -375,15 +311,83 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Producer, AggregateConsumer):
 
         return one_hot_position
 
+class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
+    def __init__(self,
+                 broker: Broker,
+                 node_features: int,
+                 window_size: int,
+                 window_step: int,
+                 hidden_dim: int = 16,
+                 pooling_channels: int = 16,
+                 pooling_ratio: float = 0.8,
+                 global_pool_type: str = 'mean',
+                 lstm_layers: int = 1):
+        Producer.__init__(self, broker)
+        AggregateConsumer.__init__(self, broker, ['pose_detection_results', 'object_detection_results',
+                                                  'activity_detection_results'], pose_detection_results=window_size,
+                                   object_detection_results=window_size, step=window_step)
+        self.classifier = None
+        self.is_injected: bool = False
+
+        self.node_features = node_features
+        self.hidden_dim = hidden_dim
+        self.pooling_channels = pooling_channels
+        self.pooling_ratio = pooling_ratio
+        self.global_pool_type = global_pool_type
+        self.lstm_layers = lstm_layers
+
+    def inject_model(self, model: GraphBasedLSTMClassifier):
+        self.classifier = model
+        self.is_injected = True
+
+    def init(self):
+        if not self.is_injected:
+            self.classifier = GraphBasedLSTMClassifier(self.node_features, self.hidden_dim, self.pooling_channels,
+                                                       self.pooling_ratio, self.global_pool_type, self.lstm_layers).to(
+                get_device())
+            # FIXME: this fails with a key error
+            # TODO: find a way to check if the key exists in the env prior to attempting to get it
+            # pretrained_weights_path = os.environ['GRAPH_LSTM_WEIGHTS_PATH']
+            # if pretrained_weights_path is not None and len(pretrained_weights_path) != 0:
+            #     self.classifier.load_state_dict(torch.load(pretrained_weights_path, map_location=get_device()))
+            # only on CUDA due to: https://github.com/pytorch/pytorch/issues/125254
+            self.classifier.compile() if torch.cuda.is_available() else None
+        temp_consumer = OneShotConsumer(self.broker, 'video_dimensions', self)
+        temp_consumer.run()
+
+    def get_name(self) -> str:
+        return 'graph-lstm-classifier-app'
+
+    def consume_message(self, message: dict[str, any]):
+        yolo_buffer = message['object_detection_results']
+        pose_buffer = message['pose_detection_results']
+        detected_activities = message['activity_detection_results']
+
+        # do not forget that zip strips the excess items from the longer sequence
+        graph_data_sequences = [self.classifier.create_graph(yolo_results, pose_results, detected_activities) for
+                                yolo_results, pose_results in zip(yolo_buffer, pose_buffer)]
+
+        if not self.classifier.training:
+            with torch.no_grad():
+                predictions = self.classifier(graph_data_sequences)
+        else:
+            predictions = self.classifier(graph_data_sequences)
+
+        result = torch.flatten(predictions).cpu().item()
+        self.produce_value('classification_results', result)
+
+    def cleanup(self):
+        self.produce_value('classification_results', None)
+
 
 class OneShotConsumer(Consumer):
 
-    def __init__(self, broker: Broker, topic: str, classifier: GraphBasedLSTMClassifier):
+    def __init__(self, broker: Broker, topic: str, stream_app: CompositeBehaviouralClassifier):
         super().__init__(broker, topic)
-        self.classifier = classifier
+        self.stream_app = stream_app
 
     def get_name(self) -> str:
         return 'one-shot-consumer'
 
     def consume_message(self, message: tuple[float, float]):
-        self.classifier.set_dimensions(message)
+        self.stream_app.classifier.set_dimensions(message)

@@ -12,10 +12,11 @@ from messaging.producer import Producer
 
 class VideoSourceProducer(Producer):
 
-    def __init__(self, broker: Broker, video_url: str):
+    def __init__(self, broker: Broker, video_url: str, with_upper_fps_limit: bool = True):
         super().__init__(broker)
         self.video_url: str = video_url
         self.video_capture = None
+        self.upper_fps_limit: bool = with_upper_fps_limit
 
     def get_name(self) -> str:
         return 'video-source-producer'
@@ -25,7 +26,8 @@ class VideoSourceProducer(Producer):
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
         self.video_capture = cv2.VideoCapture(self.video_url, cv2.CAP_FFMPEG)
         if not self.video_capture.isOpened():
-            raise Exception("Could not open video stream")
+            # TODO: sanitize the URL, masking any credentials when connecting to a secure endpoint
+            raise Exception(f"Could not open video stream for: {self.video_url}")
 
         def close_video_capture(signum, frame):
             self.video_capture.release()
@@ -56,6 +58,7 @@ class VideoSourceProducer(Producer):
         read_attempts: int = 3
 
         while self.video_capture.isOpened():
+            # TODO: account for self.upper_fps_limit
             time_elapsed: float = time.time() - prev_timestamp
             ok, frame = self.video_capture.read()  # network I/O
             if not ok and read_attempts > 0:

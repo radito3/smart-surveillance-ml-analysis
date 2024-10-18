@@ -1,6 +1,6 @@
 import logging
 import sys
-from queue import Queue
+
 import cv2
 import numpy as np
 import torch
@@ -11,7 +11,11 @@ from sklearn.metrics import recall_score, f1_score, roc_auc_score
 from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
 from analysis.object_detection.object_detector import ObjectDetector
 from analysis.pose_detection.pose_detector import PoseDetector
-from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
+from classification.behavior.graph_lstm import CompositeBehaviouralClassifier, GraphBasedLSTMClassifier
+from messaging.broker_interface import Broker
+from messaging.consumer import Consumer
+from messaging.message_broker import MessageBroker
+from messaging.source.video_source_producer import VideoSourceProducer
 from util.device import get_device
 
 
@@ -29,43 +33,73 @@ class VideoDataset(Dataset):
         return video_path, label
 
 
-# do not bound the fps to not bottleneck the training time
-def run_pipeline(video_url: str, classifier: GraphBasedLSTMClassifier) -> float:
-    video_source = cv2.VideoCapture(video_url, cv2.CAP_FFMPEG)
-    if not video_source.isOpened():
-        logging.error(f"Error opening video {video_url}")
+class TrainingSink(Consumer):
+    def __init__(self, broker: Broker):
+        super().__init__(broker, 'classification_results')
+        self.predictions: list[float] = []
+
+    def get_name(self) -> str:
+        return 'training-sink-consumer'
+
+    def get_predicted_mean(self) -> float:
+        return np.mean(self.predictions).__float__()
+
+    def consume_message(self, probability: float):
+        if probability != 0:
+            self.predictions.append(probability)
+
+
+def get_video_fps(video_path: str) -> int:
+    video_capture = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
+    if not video_capture.isOpened():
+        return -1
+    fps = video_capture.get(cv2.CAP_PROP_FPS)
+    video_capture.release()
+    return int(fps)
+
+
+def run_pipeline(video_path: str, model: GraphBasedLSTMClassifier) -> float:
+    fps: int = get_video_fps(video_path)
+    if fps == -1:
+        return -1
+    window_size: int = 2 * fps
+    window_step: int = fps // 2
+
+    broker = MessageBroker()
+    object_detector = ObjectDetector(broker)
+    pose_detector = PoseDetector(broker)
+    activity_detector = MultiPersonActivityRecognitionAnalyzer(broker, fps, timedelta(seconds=2), window_step)
+
+    classifier = CompositeBehaviouralClassifier(broker, 5, window_size, window_step)
+    classifier.inject_model(model)
+
+    sink = TrainingSink(broker)
+
+    topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
+              'activity_detection_results', 'classification_results']
+    for topic in topics:
+        broker.create_topic(topic)
+
+    broker.add_subscriber_for('video_source', object_detector)
+    broker.add_subscriber_for('video_source', pose_detector)
+    broker.add_subscriber_for('video_source', activity_detector)
+    broker.add_subscriber_for('object_detection_results', activity_detector)
+    broker.add_subscriber_for('object_detection_results', classifier)
+    broker.add_subscriber_for('pose_detection_results', classifier)
+    broker.add_subscriber_for('activity_detection_results', classifier)
+    broker.add_subscriber_for('classification_results', sink)
+
+    # do not bound the fps to not bottleneck the training time
+    source = VideoSourceProducer(broker, video_path, False)
+    try:
+        source.init()
+    except Exception as e:
+        logging.error(e)
         return -1
 
-    width = video_source.get(cv2.CAP_PROP_FRAME_WIDTH)
-    height = video_source.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    fps = video_source.get(cv2.CAP_PROP_FPS)
-
-    classifier.set_dimensions((width, height))
-    classifier.set_window_size(2 * int(fps))
-    classifier.set_window_step(int(fps) // 2)
-
-    cache_queue = Queue(maxsize=1)
-    # people_detector = CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection, ObjectDetector())
-    # analyzers = [people_detector, PoseDetector(),
-    #              MultiPersonActivityRecognitionAnalyzer(CacheAsideAnalyzer(cache_queue, AnalysisType.PersonDetection),
-    #                                                     # the native fps is used because the proportions (X sec window
-    #                                                     # with Y frames step) of the buffer window are important,
-    #                                                     # not the fps value itself
-    #                                                     int(fps), timedelta(seconds=2), int(fps) // 2)]
-
-    predictions: list[float] = []
-    while video_source.isOpened():
-        ok, frame = video_source.read()
-        if not ok:
-            break
-
-        # sequential processing will be slower, but that's okay for training
-        results = [(analyzer.analysis_type(), analyzer.analyze(frame)) for analyzer in analyzers]
-        for dtype, data in results:
-            # conf = classifier.classify_as_suspicious(dtype, data)
-            predictions.append(conf) if conf != 0 else None
-    video_source.release()
-    return np.mean(predictions).__float__()
+    broker.start()
+    broker.wait()
+    return sink.get_predicted_mean()
 
 
 def train_model(model, train_loader, val_loader, epochs):
@@ -169,7 +203,8 @@ if __name__ == '__main__':
         'lstm_layers': [1, 2]
     }
     # TODO: set the hyperparams based on the config
-    model = GraphBasedLSTMClassifier(node_features=5, window_size=-1, window_step=-1).to(get_device())
+    model = GraphBasedLSTMClassifier(node_features=5).to(get_device())
+    model.compile() if torch.cuda.is_available() else None
 
     train_model(model, training_loader, validation_loader, epochs)
 
