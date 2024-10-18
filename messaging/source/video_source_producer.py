@@ -20,13 +20,12 @@ class VideoSourceProducer(Producer):
     def get_name(self) -> str:
         return 'video-source-producer'
 
-    def init(self) -> bool:
+    def init(self):
         # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
         self.video_capture = cv2.VideoCapture(self.video_url, cv2.CAP_FFMPEG)
         if not self.video_capture.isOpened():
-            logging.error("Error opening video stream")
-            return False
+            raise Exception("Could not open video stream")
 
         def close_video_capture(signum, frame):
             self.video_capture.release()
@@ -40,10 +39,8 @@ class VideoSourceProducer(Producer):
         self.produce_value('video_dimensions', (width, height))
         self.produce_value('video_dimensions', None)
 
-        worker = Thread(name='video-source-producer-thread', target=self._produce_video_frames, daemon=True)
+        worker = Thread(name=self.get_name() + '-thread', target=self._produce_video_frames, daemon=True)
         worker.start()
-
-        return True
 
     def _produce_video_frames(self):
         # this introduces an upper bound to frame rate

@@ -10,8 +10,8 @@ class Consumer:
     def get_name(self) -> str:
         return 'base-consumer'
 
-    def init(self) -> bool:
-        return True
+    def init(self):
+        pass
 
     def __iter__(self):
         return self

@@ -18,10 +18,9 @@ class PoseDetector(Producer, Consumer):
     def get_name(self) -> str:
         return 'pose-detection-app'
 
-    def init(self) -> bool:
+    def init(self):
         self.model = YOLO('yolov8m-pose.pt').to(get_device())
         self.model.compile() if torch.cuda.is_available() else None
-        return True
 
     def consume_message(self, frame: cv2.typing.MatLike):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

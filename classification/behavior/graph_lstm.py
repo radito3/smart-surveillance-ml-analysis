@@ -46,14 +46,20 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Producer, AggregateConsumer):
                  lstm_layers=1):
         torch.nn.Module.__init__(self)
         Producer.__init__(self, broker)
-        AggregateConsumer.__init__(self, broker, ['pose_estimation_results', 'object_detection_results',
+        AggregateConsumer.__init__(self, broker, ['pose_detection_results', 'object_detection_results',
                                                   'activity_estimation_results'], pose_estimation_results=window_size,
                                    object_detection_results=window_size, step=window_step)
 
-        self.gnn = GraphNetWithSAGPooling(node_features, hidden_dim, pooling_channels, pooling_ratio, global_pool_type)
-        self.lstm = nn.LSTM(hidden_dim, hidden_dim, num_layers=lstm_layers, batch_first=True,
-                            dropout=0.2 if lstm_layers > 1 else 0)
-        self.output_layer = nn.Linear(hidden_dim, 1)  # Outputting a single probability
+        self.gnn = None
+        self.lstm = None
+        self.output_layer = None
+
+        self.node_features = node_features
+        self.hidden_dim = hidden_dim
+        self.pooling_channels = pooling_channels
+        self.pooling_ratio = pooling_ratio
+        self.global_pool_type = global_pool_type
+        self.lstm_layers = lstm_layers
 
         self.window_size = window_size
         self.window_step = window_step  # every N frames move to a new window
@@ -70,12 +76,15 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Producer, AggregateConsumer):
     def set_window_step(self, step: int):
         self.window_step = step
 
-    def init(self) -> bool:
-        # the video source producer needs to be initialized before this one
-        # otherwise, the topic would not exist
+    def init(self):
+        self.gnn = GraphNetWithSAGPooling(self.node_features, self.hidden_dim, self.pooling_channels,
+                                          self.pooling_ratio, self.global_pool_type)
+        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, num_layers=self.lstm_layers, batch_first=True,
+                            dropout=0.2 if self.lstm_layers > 1 else 0)
+        self.output_layer = nn.Linear(self.hidden_dim, 1)  # Outputting a single probability
+
         temp_consumer = OneShotConsumer(self.broker, 'video_dimensions', self)
         temp_consumer.run()
-        return True
 
     def get_name(self) -> str:
         return 'graph-lstm-classifier-app'

@@ -6,8 +6,8 @@ class Producer:
     def __init__(self, broker: Broker):
         self.broker: Broker = broker
 
-    def init(self) -> bool:
-        return True
+    def init(self):
+        pass
 
     def get_name(self) -> str:
         return 'base-producer'

@@ -13,18 +13,21 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
 
     def __init__(self, broker: Broker, fps: int, window_size: timedelta, window_step: int):
         Producer.__init__(self, broker)
-        AggregateConsumer.__init__(self, broker, ['object_detection_results', 'frame_source'])
+        AggregateConsumer.__init__(self, broker, ['object_detection_results', 'video_source'])
         self._num_frames: int = int(fps * window_size.total_seconds())
         self._buffer: list[list[tuple[any, cv2.typing.MatLike]]] = []
-        self._window_step = window_step
-        self._activity_analyzer = ActivityRecognitionAnalyzer()
+        self._window_step: int = window_step
+        self._activity_analyzer = None
 
     def get_name(self) -> str:
         return 'activity-recognition-app'
 
+    def init(self):
+        self._activity_analyzer = ActivityRecognitionAnalyzer()
+
     def consume_message(self, message: dict[str, any]):
         if len(self._buffer) < self._num_frames:
-            frame = message['frame_source']
+            frame = message['video_source']
             yolo_results = message['object_detection_results']
             self._buffer.append(self.extract_sub_regions_for_people(frame, yolo_results))
             return

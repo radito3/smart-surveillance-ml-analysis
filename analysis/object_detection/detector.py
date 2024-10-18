@@ -13,7 +13,7 @@ class ObjectDetector(Producer, Consumer):
 
     def __init__(self, broker: Broker):
         Producer.__init__(self, broker)
-        Consumer.__init__(self, broker, 'frame_source')
+        Consumer.__init__(self, broker, 'video_source')
         self.model = None
 
     def get_name(self) -> str:
@@ -21,10 +21,9 @@ class ObjectDetector(Producer, Consumer):
 
     # split the initialization of the model in a separate method, so it can be called from within the worker thread
     # instead of the main thread
-    def init(self) -> bool:
+    def init(self):
         self.model = YOLO('yolov10m.pt').to(get_device())
         self.model.compile() if torch.cuda.is_available() else None
-        return True
 
     def consume_message(self, frame: cv2.typing.MatLike):
         with torch.no_grad():

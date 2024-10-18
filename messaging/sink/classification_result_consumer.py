@@ -1,11 +1,11 @@
+from messaging.broker_interface import Broker
 from messaging.consumer import Consumer
-from messaging.message_broker import MessageBroker
 from notifications.notification_delegate import send_notification
 
 
 class ClassificationResultConsumer(Consumer):
 
-    def __init__(self, broker: MessageBroker, notification_webhook: str):
+    def __init__(self, broker: Broker, notification_webhook: str):
         super().__init__(broker, 'classification_results')
         self.notification_webhook_url: str = notification_webhook
 
