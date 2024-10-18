@@ -7,8 +7,9 @@ from .consumer import Consumer
 
 
 class PeekableQueue(Queue):
-    def __init__(self, maxsize=0):
+    def __init__(self, topic: str, maxsize: int = 0):
         super().__init__(maxsize)
+        self.topic = topic
         self.condition = Condition()
 
     def peek(self) -> any:
@@ -22,6 +23,7 @@ class PeekableQueue(Queue):
 
             if read_count >= max_reads:  # this is the last subscriber
                 self.get_nowait()  # remove element
+                self.condition.notify_all()
             else:
                 self.queue[0] = (item, read_count, max_reads)
 
@@ -29,6 +31,9 @@ class PeekableQueue(Queue):
 
     def put_with_max_reads(self, item, max_reads):
         with self.condition:
+            while self.full():
+                self.condition.wait()
+
             super().put((item, 0, max_reads))
             self.condition.notify_all()
 
@@ -54,7 +59,7 @@ class MessageBroker(Broker):
 
     def create_topic(self, topic: str):
         if topic not in self.topics_mappings:
-            self.topics_mappings[topic] = (PeekableQueue(10), 0)
+            self.topics_mappings[topic] = (PeekableQueue(topic, 10), 0)
 
     def add_subscriber_for(self, topic: str, consumer: Consumer):
         if topic not in self.topics_mappings:

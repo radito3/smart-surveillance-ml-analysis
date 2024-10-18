@@ -12,6 +12,8 @@ class SimplePresenceClassifier(Producer, Consumer):
         return 'simple-presence-classifier-app'
 
     def consume_message(self, yolo_results: list[tuple[any, any, any, any]]):
+        if len(yolo_results) == 0:
+            return
         detected_people = [True for _, _, cls, _ in yolo_results if cls == 0]
         if len(detected_people) > 0:
             self.produce_value('classification_results', True)

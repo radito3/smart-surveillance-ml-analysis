@@ -34,6 +34,8 @@ class ObjectDetector(Producer, Consumer):
         boxes: ultralytics.engine.results.Boxes = results.boxes.cpu()  # bounding boxes
         if len(boxes.data) != 0:
             self.produce_value('object_detection_results', [*zip(boxes.xyxy, boxes.id, boxes.cls, boxes.conf)])
+        else:
+            self.produce_value('object_detection_results', [])
 
     def cleanup(self):
         self.produce_value('object_detection_results', None)
