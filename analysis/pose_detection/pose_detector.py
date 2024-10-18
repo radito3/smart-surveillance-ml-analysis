@@ -28,8 +28,7 @@ class PoseDetector(Producer, Consumer):
             results = self.model(frame, verbose=False, classes=[0])[0]
         # keypoints data format: https://github.com/jin-s13/COCO-WholeBody/blob/master/data_format.md
         people = results.keypoints.cpu().xy
-        if len(people) != 0:
-            self.produce_value('pose_detection_results', people)
+        self.produce_value('pose_detection_results', people)
 
     def cleanup(self):
         self.produce_value('pose_detection_results', None)

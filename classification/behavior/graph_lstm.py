@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import GCNConv, global_mean_pool, global_max_pool, SAGPooling
 from torch_geometric.data import Data
-# from itertools import zip_longest
+from itertools import zip_longest
 from math import sqrt
 
 from messaging.aggregate_consumer import AggregateConsumer
@@ -47,9 +47,12 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Producer, AggregateConsumer):
         torch.nn.Module.__init__(self)
         Producer.__init__(self, broker)
         AggregateConsumer.__init__(self, broker, ['pose_detection_results', 'object_detection_results',
-                                                  'activity_estimation_results'], pose_estimation_results=window_size,
+                                                  'activity_detection_results'], pose_detection_results=window_size,
                                    object_detection_results=window_size, step=window_step)
 
+        # FIXME: this breaks the module attributes registration...
+        #  the submodules need to be assigned here instead of in init()
+        # TODO: find a way to have a late initialization
         self.gnn = None
         self.lstm = None
         self.output_layer = None
@@ -77,11 +80,15 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Producer, AggregateConsumer):
         self.window_step = step
 
     def init(self):
+        # FIXME: the 'to(device)' is only a stopgap solution for the threading issue with models (the attribute setting
+        #  of submodules must be in the constructor, not in the init() method for PyTorch to correctly handle device
+        #  memory mapping and training parameter handling
         self.gnn = GraphNetWithSAGPooling(self.node_features, self.hidden_dim, self.pooling_channels,
-                                          self.pooling_ratio, self.global_pool_type)
+                                          self.pooling_ratio, self.global_pool_type).to(get_device())
         self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, num_layers=self.lstm_layers, batch_first=True,
-                            dropout=0.2 if self.lstm_layers > 1 else 0)
-        self.output_layer = nn.Linear(self.hidden_dim, 1)  # Outputting a single probability
+                            dropout=0.2 if self.lstm_layers > 1 else 0).to(get_device())
+        # Outputting a single probability
+        self.output_layer = nn.Linear(self.hidden_dim, 1).to(get_device())
 
         temp_consumer = OneShotConsumer(self.broker, 'video_dimensions', self)
         temp_consumer.run()
@@ -91,7 +98,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Producer, AggregateConsumer):
 
     def consume_message(self, message: dict[str, any]):
         yolo_buffer = message['object_detection_results']
-        pose_buffer = message['pose_detections_results']
+        pose_buffer = message['pose_detection_results']
         detected_activities = message['activity_detection_results']
 
         graph_data_sequences = [self._create_graph(yolo_results, pose_results, detected_activities) for
@@ -162,21 +169,21 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Producer, AggregateConsumer):
         activities = np.array(detected_activities, dtype=np.float32).flatten()
 
         # these paddings aren't great...
-        if len(yolo_results) > len(pose_results):
-            for _ in range(len(yolo_results) - len(pose_results)):
+        if len(detections) > len(pose_results):
+            for _ in range(len(detections) - len(pose_results)):
                 orientations = np.append(orientations, 0)
                 body_positions = np.append(body_positions, 0)
 
-        if len(pose_results) > len(yolo_results):
-            for _ in range(len(pose_results) - len(yolo_results)):
+        if len(pose_results) > len(detections):
+            for _ in range(len(pose_results) - len(detections)):
                 velocities = np.append(velocities, 0)
                 average_velocities = np.append(average_velocities, 0)
                 centroids_current = np.append(centroids_current, np.array([0, 0]))
 
-        if len(activities) < max(len(yolo_results), len(pose_results)):
-            for _ in range(max(len(yolo_results), len(pose_results)) - len(activities)):
+        if len(activities) < max(len(detections), len(pose_results)):
+            for _ in range(max(len(detections), len(pose_results)) - len(activities)):
                 activities = np.append(activities, -1)
-        if len(activities) > max(len(yolo_results), len(pose_results)):
+        if len(activities) > max(len(detections), len(pose_results)):
             activities = np.delete(activities, len(activities) - 1)
 
         # feature_vector_t = [
@@ -234,21 +241,15 @@ class GraphBasedLSTMClassifier(torch.nn.Module, Producer, AggregateConsumer):
 
     def _calc_velocities(self, detections) -> np.array:
         if len(self.prev_detections) > 0:
-            prev_detections = self.prev_detections.copy()
-
             if len(detections) > len(self.prev_detections):
-                for _ in range(len(detections) - len(prev_detections)):
-                    prev_detections.append((np.zeros(4, dtype=np.float32), -1))
-                # generator = zip_longest(detections, self.prev_detections,
-                #                         fillvalue=(np.zeros(4, dtype=np.float32), -1))
-            # else:
-            #     generator = zip(detections,
-            #                     filter(lambda tpl: self.__contains_by_id(detections, tpl[1]), self.prev_detections))
+                generator = zip_longest(detections, self.prev_detections,
+                                        fillvalue=(np.zeros(4, dtype=np.float32), -1))
+            else:
+                generator = zip(detections,
+                                filter(lambda tpl: self.__contains_by_id(detections, tpl[1]), self.prev_detections))
             displacement = [self._calc_centroid(current_bbox) - self._calc_centroid(prev_bbox)
                             if current_id == prev_id else np.zeros(2, dtype=np.float32)
-                            for (current_bbox, current_id), (prev_bbox, prev_id) in
-                            zip(detections,
-                                filter(lambda tpl: self.__contains_by_id(detections, tpl[1]), prev_detections))
+                            for (current_bbox, current_id), (prev_bbox, prev_id) in generator
                             ]
 
             return np.linalg.norm(displacement, axis=1)

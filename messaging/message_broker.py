@@ -1,4 +1,5 @@
 import logging
+import traceback
 from queue import Queue
 from threading import Thread, Condition
 
@@ -78,6 +79,7 @@ class MessageBroker(Broker):
             consumer.run()
         except Exception as e:
             logging.error(f"Exception occurred in {consumer.get_name()}: {e}")
+            traceback.print_exception(e)
 
         if self.topics_mappings[topic][1] > 0:
             tmp = self.topics_mappings[topic]

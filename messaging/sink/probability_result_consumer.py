@@ -13,6 +13,5 @@ class ProbabilityResultConsumer(Consumer):
         return 'classification-result-consumer'
 
     def consume_message(self, confidence: float):
-        print('confidence:', confidence)
-        # if confidence > 0.6:  # experiment with threshold values
-        #     send_notification(self.notification_webhook_url)
+        if confidence > 0.6:  # experiment with threshold values
+            send_notification(self.notification_webhook_url)

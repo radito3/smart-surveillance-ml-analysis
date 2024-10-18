@@ -13,6 +13,5 @@ class BinaryResultConsumer(Consumer):
         return 'classification-result-consumer'
 
     def consume_message(self, result: bool):
-        print('result:', result)
-        # if result:
-        #     send_notification(self.notification_webhook_url)
+        if result:
+            send_notification(self.notification_webhook_url)

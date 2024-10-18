@@ -9,7 +9,7 @@ from datetime import timedelta
 from sklearn.metrics import recall_score, f1_score, roc_auc_score
 
 from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
-from analysis.object_detection.detector import ObjectDetector
+from analysis.object_detection.object_detector import ObjectDetector
 from analysis.pose_detection.pose_detector import PoseDetector
 from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
 from util.device import get_device
