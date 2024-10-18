@@ -15,8 +15,8 @@ from util.device import get_device
 
 class TopologyBuilder:
 
-    @staticmethod
-    def build_topology_for(mode: str, notification_webhook_url: str) -> MessageBroker:
+    @classmethod
+    def build_topology_for(cls, mode: str, notification_webhook_url: str) -> MessageBroker:
         broker = MessageBroker()
         match mode:
             case "behaviour":

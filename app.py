@@ -2,13 +2,13 @@ import logging
 import os
 import sys
 
-from context.context_factory import TopologyBuilder
+from context.topology_builder import TopologyBuilder
 from messaging.message_broker import MessageBroker
 from messaging.source.video_source_producer import VideoSourceProducer
 
 
 def main(video_url: str, analysis_mode: str, notif_webhook_url: str):
-    broker = TopologyBuilder().build_topology_for(analysis_mode, notif_webhook_url)
+    broker = TopologyBuilder.build_topology_for(analysis_mode, notif_webhook_url)
 
     source = VideoSourceProducer(broker, video_url)
 
