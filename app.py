@@ -1,49 +1,14 @@
 import logging
-from datetime import timedelta
-
-import cv2
-from collections.abc import Callable
-from threading import Thread
-from queue import Queue
 import os
 import sys
-import time
-import signal
-from typing import Any
-import torch
 
-from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
-from analysis.object_detection.detector import ObjectDetector
-from analysis.pose_detection.pose_detector import PoseDetector
-from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
+from context.context_factory import TopologyBuilder
 from messaging.message_broker import MessageBroker
-from messaging.sink.classification_result_consumer import ClassificationResultConsumer
 from messaging.source.video_source_producer import VideoSourceProducer
 
 
 def main(video_url: str, analysis_mode: str, notif_webhook_url: str):
-    broker = MessageBroker()
-
-    object_detector = ObjectDetector(broker)
-    pose_detector = PoseDetector(broker)
-    activity_detector = MultiPersonActivityRecognitionAnalyzer(broker, 24, timedelta(seconds=2), 12)
-    classifier = GraphBasedLSTMClassifier(broker, 5, 48, 12)
-
-    sink = ClassificationResultConsumer(broker, notif_webhook_url)
-
-    topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
-              'activity_detection_results', 'classification_results']
-    for topic in topics:
-        broker.create_topic(topic)
-
-    broker.add_subscriber_for('video_source', object_detector)
-    broker.add_subscriber_for('video_source', pose_detector)
-    broker.add_subscriber_for('video_source', activity_detector)
-    broker.add_subscriber_for('object_detection_results', activity_detector)
-    broker.add_subscriber_for('object_detection_results', classifier)
-    broker.add_subscriber_for('pose_detection_results', classifier)
-    broker.add_subscriber_for('activity_detection_results', classifier)
-    broker.add_subscriber_for('classification_results', sink)
+    broker = TopologyBuilder().build_topology_for(analysis_mode, notif_webhook_url)
 
     source = VideoSourceProducer(broker, video_url)
 

@@ -1,10 +1,17 @@
 import logging
 import os
 
+from messaging.broker_interface import Broker
+from messaging.consumer import Consumer
+from messaging.producer import Producer
 
-class SuspiciousActivityClassifier:
 
-    def __init__(self):
+class SuspiciousActivityClassifier(Producer, Consumer):
+
+    def __init__(self, broker: Broker):
+        Producer.__init__(self, broker)
+        Consumer.__init__(self, broker, 'activity_detection_results')
+
         env_whitelist = os.environ['ACTIVITY_WHITELIST']
         self.whitelist_activities_indices = []
         if env_whitelist is not None and len(env_whitelist) != 0:
@@ -17,14 +24,16 @@ class SuspiciousActivityClassifier:
         else:
             self.whitelist_activities_indices = [2, 8]  # temp
 
-    def classify_as_suspicious(self, dtype: any, vector: list[any]) -> float:
-        if dtype != 0 or len(vector) == 0:
-            return 0
+    def get_name(self) -> str:
+        return 'suspicious-activity-classifier-app'
 
-        for activity_idx in vector:
+    def consume_message(self, people_activities: list[int]):
+        for activity_idx in people_activities:
             if activity_idx not in self.whitelist_activities_indices:
-                return 1
-        return 0
+                self.produce_value('classification_results', True)
+
+    def cleanup(self):
+        self.produce_value('classification_results', None)
 
     @staticmethod
     def __parse_env_line(value: str) -> int | list[int]:
