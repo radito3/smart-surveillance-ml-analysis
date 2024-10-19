@@ -63,3 +63,7 @@ class MessageBroker(Broker):
     def wait(self):
         [thread.join() for thread in self.consumer_threads.values()]
         # delete topics for cleanup?
+
+    def interrupt(self):
+        for topic in self.topics_mappings.values():
+            topic[0].put_with_max_reads(None, topic[1])

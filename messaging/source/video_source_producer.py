@@ -1,6 +1,5 @@
 import logging
 import os
-import signal
 import time
 from threading import Thread
 
@@ -17,9 +16,13 @@ class VideoSourceProducer(Producer):
         self.video_url: str = video_url
         self.video_capture = None
         self.upper_fps_limit: bool = with_upper_fps_limit
+        self.interrupted: bool = False
 
     def get_name(self) -> str:
         return 'video-source-producer'
+
+    def interrupt(self):
+        self.interrupted = True
 
     def init(self):
         # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
@@ -28,12 +31,6 @@ class VideoSourceProducer(Producer):
         if not self.video_capture.isOpened():
             # TODO: sanitize the URL, masking any credentials when connecting to a secure endpoint
             raise Exception(f"Could not open video stream for: {self.video_url}")
-
-        def close_video_capture(signum, frame):
-            self.video_capture.release()
-
-        signal.signal(signal.SIGINT, close_video_capture)
-        signal.signal(signal.SIGTERM, close_video_capture)
 
         width = self.video_capture.get(cv2.CAP_PROP_FRAME_WIDTH)
         height = self.video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
@@ -57,8 +54,7 @@ class VideoSourceProducer(Producer):
         prev_timestamp: float = 0
         read_attempts: int = 3
 
-        while self.video_capture.isOpened():
-            # TODO: account for self.upper_fps_limit
+        while not self.interrupted and self.video_capture.isOpened():
             time_elapsed: float = time.time() - prev_timestamp
             ok, frame = self.video_capture.read()  # network I/O
             if not ok and read_attempts > 0:
@@ -70,7 +66,7 @@ class VideoSourceProducer(Producer):
                 break
             read_attempts = 3  # guard only non-transitive failures
 
-            if time_elapsed > target_frame_interval:
+            if not self.upper_fps_limit or time_elapsed > target_frame_interval:
                 prev_timestamp = time.time()
                 # even though we may drop a few frames here and there, that should be acceptable
                 # if the source is running at too much fps, this upper limit safeguards us from overloading the system

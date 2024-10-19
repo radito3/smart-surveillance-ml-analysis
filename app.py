@@ -1,5 +1,6 @@
 import logging
 import os
+import signal
 import sys
 
 from messaging.topology.topology_builder import TopologyBuilder
@@ -15,6 +16,13 @@ def main(video_url: str, analysis_mode: str, notif_webhook_url: str):
     except Exception as e:
         logging.error(e)
         return
+
+    def interrupt_streams(signum, frame):
+        source.interrupt()
+        broker.interrupt()
+
+    signal.signal(signal.SIGINT, interrupt_streams)
+    signal.signal(signal.SIGTERM, interrupt_streams)
 
     broker.start_streams()
     broker.wait()
