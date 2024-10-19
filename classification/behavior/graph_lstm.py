@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -345,11 +347,10 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
             self.classifier = GraphBasedLSTMClassifier(self.node_features, self.hidden_dim, self.pooling_channels,
                                                        self.pooling_ratio, self.global_pool_type, self.lstm_layers).to(
                 get_device())
-            # FIXME: this fails with a key error
-            # TODO: find a way to check if the key exists in the env prior to attempting to get it
-            # pretrained_weights_path = os.environ['GRAPH_LSTM_WEIGHTS_PATH']
-            # if pretrained_weights_path is not None and len(pretrained_weights_path) != 0:
-            #     self.classifier.load_state_dict(torch.load(pretrained_weights_path, map_location=get_device()))
+            if 'GRAPH_LSTM_WEIGHTS_PATH' in os.environ:
+                pretrained_weights_path = os.environ['GRAPH_LSTM_WEIGHTS_PATH']
+                if len(pretrained_weights_path) != 0:
+                    self.classifier.load_state_dict(torch.load(pretrained_weights_path, map_location=get_device()))
             # only on CUDA due to: https://github.com/pytorch/pytorch/issues/125254
             self.classifier.compile() if torch.cuda.is_available() else None
         temp_consumer = OneShotConsumer(self.broker, 'video_dimensions', self)

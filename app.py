@@ -29,7 +29,6 @@ if __name__ == '__main__':
     analysis_mode_ = sys.argv[2]
     notification_webhook = sys.argv[3]
 
-    log_level_env: str = ''
     mapping = logging.getLevelNamesMapping()
     if 'LOG_LEVEL' in os.environ:
         log_level_env = os.environ['LOG_LEVEL']

@@ -12,18 +12,17 @@ class SuspiciousActivityClassifier(Producer, Consumer):
         Producer.__init__(self, broker)
         Consumer.__init__(self, broker, 'activity_detection_results')
 
-        # FIXME: same issue as with graph_lstm_weights
-        # env_whitelist = os.environ['ACTIVITY_WHITELIST']
         self.whitelist_activities_indices = []
-        # if env_whitelist is not None and len(env_whitelist) != 0:
-        #     for env_line in env_whitelist:
-        #         parsed = self.__parse_env_line(env_line)
-        #         if isinstance(parsed, int):
-        #             self.whitelist_activities_indices.append(parsed)
-        #         else:
-        #             self.whitelist_activities_indices.extend(parsed)
-        # else:
-        self.whitelist_activities_indices = [2, 8]  # temp
+        if 'ACTIVITY_WHITELIST' in os.environ:
+            env_whitelist = os.environ['ACTIVITY_WHITELIST']
+            for env_line in env_whitelist.split(','):
+                parsed = self.__parse_env_line(env_line)
+                if isinstance(parsed, int):
+                    self.whitelist_activities_indices.append(parsed)
+                else:
+                    self.whitelist_activities_indices.extend(parsed)
+        else:
+            self.whitelist_activities_indices = [2, 8]  # temp
 
     def get_name(self) -> str:
         return 'suspicious-activity-classifier-app'

@@ -28,11 +28,6 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
     def consume_message(self, message: dict[str, any]):
         if len(self._buffer) < self._num_frames:
             frame = message['video_source']
-            # FIXME: if there aren't any people in the frame, YOLO would return an empty list, or a list containing
-            #  only objects
-            #  if there are no objects detected, this will bottleneck the consumer, as the number of frame messages
-            #  and YOLO results messages would not be the same
-            #  consider passing empty messages to the topic for every frame, to prevent topic congestion
             yolo_results = message['object_detection_results']
             self._buffer.append(self.extract_sub_regions_for_people(frame, yolo_results))
             return
