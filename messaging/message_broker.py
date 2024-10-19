@@ -85,7 +85,7 @@ class MessageBroker(Broker):
             tmp = self.topics_mappings[topic]
             self.topics_mappings[topic] = (tmp[0], tmp[1] - 1)
 
-    def start(self):
+    def start_streams(self):
         [thread.start() for thread in self.consumer_threads.values()]
 
     def wait(self):
