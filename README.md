@@ -18,7 +18,6 @@ ML Analysis pipeline for the Smart Surveillance System
  [article 2](https://www.mdpi.com/1424-8220/17/11/2556)
 
 ## TODO
- - compile models with 'max-autotune' if present (needs CUDA GPU)
  - write about the tracking algorithms used in YOLO
  - [variable input size for neural network](https://stats.stackexchange.com/a/138760)
  - [Comparative Analysis of OpenPose, PoseNet, and MoveNet](https://iieta.org/journals/ts/paper/10.18280/ts.390111)

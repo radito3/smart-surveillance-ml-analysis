@@ -68,14 +68,14 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         predictions = self.output_layer(lstm_out[:, -1, :])  # Classify based on the output of the last time step
         return torch.sigmoid(predictions)
 
-    def create_graph(self, yolo_results, pose_results, detected_activities):
-        nodes, edges, edge_weights = self._extract_graph(yolo_results, pose_results, detected_activities)
+    def create_graph(self, yolo_results, pose_results, hoi_results, detected_activities):
+        nodes, edges, edge_weights = self._extract_graph(yolo_results, pose_results, hoi_results, detected_activities)
         return Data(x=torch.tensor(nodes, dtype=torch.float),
                     edge_index=torch.tensor(edges, dtype=torch.long).t().contiguous(),
                     edge_attr=torch.tensor(edge_weights, dtype=torch.float)
                     )
 
-    def _extract_graph(self, yolo_results, pose_results, detected_activities):
+    def _extract_graph(self, yolo_results, pose_results, hoi_results, detected_activities):
         """
         The node features are:
          - orientation (where a person is facing)
@@ -106,7 +106,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
 
         activities = np.array(detected_activities, dtype=np.float32).flatten()
 
-        # these paddings aren't great...
+        # FIXME: the paddings are still insufficient sometimes and np.hstack throws an error
         if len(detections) > len(pose_results):
             for _ in range(len(detections) - len(pose_results)):
                 orientations = np.append(orientations, 0)
@@ -326,7 +326,8 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
                  lstm_layers: int = 1):
         Producer.__init__(self, broker)
         AggregateConsumer.__init__(self, broker, ['pose_detection_results', 'object_detection_results',
-                                                  'activity_detection_results'], pose_detection_results=window_size,
+                                                  'activity_detection_results', 'hoi_results'],
+                                   pose_detection_results=window_size, hoi_results=window_size,
                                    object_detection_results=window_size, step=window_step)
         self.classifier = None
         self.is_injected: bool = False
@@ -362,11 +363,14 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
     def consume_message(self, message: dict[str, any]):
         yolo_buffer = message['object_detection_results']
         pose_buffer = message['pose_detection_results']
+        hoi_buffer = message['hoi_results']
         detected_activities = message['activity_detection_results']
 
         # do not forget that zip strips the excess items from the longer sequence
-        graph_data_sequences = [self.classifier.create_graph(yolo_results, pose_results, detected_activities) for
-                                yolo_results, pose_results in zip(yolo_buffer, pose_buffer)]
+        graph_data_sequences = [
+            self.classifier.create_graph(yolo_results, pose_results, hoi_results, detected_activities) for
+            yolo_results, pose_results, hoi_results in zip(yolo_buffer, pose_buffer, hoi_buffer)
+        ]
 
         if not self.classifier.training:
             with torch.no_grad():
@@ -375,6 +379,7 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
             predictions = self.classifier(graph_data_sequences)
 
         result = torch.flatten(predictions).cpu().item()
+        self.classifier.velocities.clear()
         self.produce_value('classification_results', result)
 
     def cleanup(self):

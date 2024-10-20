@@ -22,7 +22,7 @@ class ObjectDetector(Producer, Consumer):
     # split the initialization of the model in a separate method, so it can be called from within the worker thread
     # instead of the main thread
     def init(self):
-        self.model = YOLO('yolov10m.pt').to(get_device())
+        self.model = YOLO('yolo11m.pt').to(get_device())
         self.model.compile() if torch.cuda.is_available() else None
 
     def consume_message(self, frame: cv2.typing.MatLike):

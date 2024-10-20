@@ -1,3 +1,5 @@
+import logging
+
 from .broker_interface import Broker
 
 
@@ -31,5 +33,4 @@ class Consumer:
         pass
 
     def consume_message(self, message: any):
-        # we don't need an abstract method to allow instantiation of this base class
-        pass
+        logging.warning('Consume called on a base consumer. Skipping message...')

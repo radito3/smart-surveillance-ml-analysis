@@ -1,5 +1,6 @@
 from datetime import timedelta
 from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
+from analysis.human_object_interaction.interaction import HumanObjectInteractionAnalyzer
 from classification.activity.suspicious_activity_classifier import SuspiciousActivityClassifier
 from classification.behavior.graph_lstm import CompositeBehaviouralClassifier, GraphBasedLSTMClassifier
 from classification.people_presence.simple_presence_classifier import SimplePresenceClassifier
@@ -20,6 +21,7 @@ class TopologyBuilder:
             case "behaviour":
                 object_detector = ObjectDetector(broker)
                 pose_detector = PoseDetector(broker)
+                hoi_detector = HumanObjectInteractionAnalyzer(broker)
                 activity_detector = MultiPersonActivityRecognitionAnalyzer(broker, 24, timedelta(seconds=2), 12)
 
                 classifier = CompositeBehaviouralClassifier(broker, 5, 48, 12)
@@ -27,7 +29,7 @@ class TopologyBuilder:
                 sink = ProbabilityResultConsumer(broker, notification_webhook_url)
 
                 topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
-                          'activity_detection_results', 'classification_results']
+                          'activity_detection_results', 'hoi_results', 'classification_results']
                 for topic in topics:
                     broker.create_topic(topic)
 
@@ -35,8 +37,11 @@ class TopologyBuilder:
                 broker.add_subscriber_for('video_source', pose_detector)
                 broker.add_subscriber_for('video_source', activity_detector)
                 broker.add_subscriber_for('object_detection_results', activity_detector)
+                broker.add_subscriber_for('object_detection_results', hoi_detector)
+                broker.add_subscriber_for('pose_detection_results', hoi_detector)
                 broker.add_subscriber_for('object_detection_results', classifier)
                 broker.add_subscriber_for('pose_detection_results', classifier)
+                broker.add_subscriber_for('hoi_results', classifier)
                 broker.add_subscriber_for('activity_detection_results', classifier)
                 broker.add_subscriber_for('classification_results', sink)
             case "activity":
@@ -81,6 +86,7 @@ class TopologyBuilder:
         broker = MessageBroker()
         object_detector = ObjectDetector(broker)
         pose_detector = PoseDetector(broker)
+        hoi_detector = HumanObjectInteractionAnalyzer(broker)
         activity_detector = MultiPersonActivityRecognitionAnalyzer(broker, fps, timedelta(seconds=2), window_step)
 
         classifier = CompositeBehaviouralClassifier(broker, 5, window_size, window_step)
@@ -89,7 +95,7 @@ class TopologyBuilder:
         sink = TrainingSink(broker)
 
         topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
-                  'activity_detection_results', 'classification_results']
+                  'activity_detection_results', 'hoi_results', 'classification_results']
         for topic in topics:
             broker.create_topic(topic)
 
@@ -97,8 +103,11 @@ class TopologyBuilder:
         broker.add_subscriber_for('video_source', pose_detector)
         broker.add_subscriber_for('video_source', activity_detector)
         broker.add_subscriber_for('object_detection_results', activity_detector)
+        broker.add_subscriber_for('object_detection_results', hoi_detector)
+        broker.add_subscriber_for('pose_detection_results', hoi_detector)
         broker.add_subscriber_for('object_detection_results', classifier)
         broker.add_subscriber_for('pose_detection_results', classifier)
+        broker.add_subscriber_for('hoi_results', classifier)
         broker.add_subscriber_for('activity_detection_results', classifier)
         broker.add_subscriber_for('classification_results', sink)
         return broker, sink
