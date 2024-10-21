@@ -34,6 +34,7 @@ ML Analysis pipeline for the Smart Surveillance System
  - write about improvements in [YOLOv9](https://learnopencv.com/yolov9-advancing-the-yolo-legacy/) and YOLOv10
  - write about training loss functions, optimizers (SGD, Adam) and metrics (accuracy, precision, recall, F1-score, ROC-AUC)
  - useful info about general principles of [HAR](https://www.sciencedirect.com/science/article/pii/S187705092200045X?ref=cra_js_challenge&fr=RR-1)
+ - [Real-world YOLO applications](https://www.ultralytics.com/blog/shattering-the-surveillance-status-quo-with-vision-ai) 
 
 ## Miscellaneous 
  - Objects interaction https://arxiv.org/pdf/1612.00222

@@ -16,13 +16,9 @@ class VideoSourceProducer(Producer):
         self.video_url: str = video_url
         self.video_capture = None
         self.upper_fps_limit: bool = with_upper_fps_limit
-        self.interrupted: bool = False
 
     def get_name(self) -> str:
         return 'video-source-producer'
-
-    def interrupt(self):
-        self.interrupted = True
 
     def init(self):
         # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
@@ -41,6 +37,13 @@ class VideoSourceProducer(Producer):
         worker = Thread(name=self.get_name() + '-thread', target=self._produce_video_frames, daemon=True)
         worker.start()
 
+    def _safe_write(self, message: any) -> bool:
+        try:
+            self.produce_value('video_source', message)
+            return True
+        except StopIteration:
+            return False
+
     def _produce_video_frames(self):
         # this introduces an upper bound to frame rate
         # however, if the real-time fps is significantly lower than 24, this could lead to issues with analysis performance
@@ -54,7 +57,7 @@ class VideoSourceProducer(Producer):
         prev_timestamp: float = 0
         read_attempts: int = 3
 
-        while not self.interrupted and self.video_capture.isOpened():
+        while self.video_capture.isOpened():
             time_elapsed: float = time.time() - prev_timestamp
             ok, frame = self.video_capture.read()  # network I/O
             if not ok and read_attempts > 0:
@@ -63,6 +66,7 @@ class VideoSourceProducer(Producer):
                 time.sleep(2)
                 continue
             if not ok and read_attempts == 0:
+                self._safe_write(None)
                 break
             read_attempts = 3  # guard only non-transitive failures
 
@@ -70,8 +74,9 @@ class VideoSourceProducer(Producer):
                 prev_timestamp = time.time()
                 # even though we may drop a few frames here and there, that should be acceptable
                 # if the source is running at too much fps, this upper limit safeguards us from overloading the system
-                self.produce_value('video_source', frame)
+                if not self._safe_write(frame):
+                    break
 
         # stop on camera disconnect
         self.video_capture.release()
-        self.produce_value('video_source', None)
+        self._safe_write(None)

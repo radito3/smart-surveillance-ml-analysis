@@ -8,7 +8,15 @@ from messaging.consumer import Consumer
 from messaging.producer import Producer
 from util.device import get_device
 
-
+# @software{yolo11_ultralytics,
+#           author = {Glenn Jocher and Jing Qiu},
+#           title = {Ultralytics YOLO11},
+#           version = {11.0.0},
+#           year = {2024},
+#           url = {https://github.com/ultralytics/ultralytics},
+#           orcid = {0000-0001-5950-6979, 0000-0002-7603-6750, 0000-0003-3783-7069},
+#           license = {AGPL-3.0}
+# }
 class ObjectDetector(Producer, Consumer):
 
     def __init__(self, broker: Broker):

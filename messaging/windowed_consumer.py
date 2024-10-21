@@ -13,6 +13,6 @@ class WindowedConsumer(Consumer):
     def __next__(self) -> any:
         while len(self.buffer) < self.window_size:
             self.buffer.append(super().__next__())
-        result = self.buffer
+        result = self.buffer.copy()
         self.buffer = self.buffer[self.window_step:]
         return result

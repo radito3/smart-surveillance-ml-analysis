@@ -22,10 +22,13 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
         pose_results = message['pose_detection_results']
         people = [(bbox, track_id) for bbox, track_id, cls, _ in yolo_results if cls == 0]
         objects = [(bbox, cls) for bbox, _, cls, _ in yolo_results if cls != 0]
+        # FIXME: ensure uniqueness of pairings - currently more than one person is matched to a pose
+        people_to_poses = self.match_bboxes_to_keypoints(people, pose_results)
 
         results: list[list[int]] = []
-        for person_bbox, track_id in people:
-            person_kpts = self.find_person_kpts(pose_results, person_bbox)
+        for i, (person_bbox, track_id) in enumerate(people):
+            # print(f"bbox idx: {i} pose idx: {people_to_poses[i]}")
+            person_kpts = pose_results[people_to_poses[i]]
             track_id_key: int = int(track_id.item()) if isinstance(track_id, torch.Tensor) else int(track_id)
             interacting_with_object: bool = False
 
@@ -49,25 +52,6 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
 
     def cleanup(self):
         self.produce_value('hoi_results', None)
-
-    def find_person_kpts(self, pose_results, person_bbox):
-        for kpts in pose_results:
-            if self.match_bbox_keypoints(person_bbox, kpts):
-                return kpts
-
-    @staticmethod
-    def is_keypoint_in_bbox(keypoint, bbox) -> bool:
-        x_min, y_min, x_max, y_max = bbox
-        x_kp, y_kp = keypoint
-
-        return x_min <= x_kp <= x_max and y_min <= y_kp <= y_max
-
-    def match_bbox_keypoints(self, bbox, keypoints, threshold=0.5) -> bool:
-        keypoints_in_bbox = sum(self.is_keypoint_in_bbox(kp, bbox) for kp in keypoints)
-        total_keypoints = len(keypoints)
-
-        proportion_in_bbox = keypoints_in_bbox / total_keypoints
-        return proportion_in_bbox >= threshold
 
     def is_object_held(self, person_bbox, object_bbox, hand_keypoints) -> bool:
         iou = self.calculate_iou(person_bbox, object_bbox)
@@ -130,3 +114,47 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
 
         threshold = 0.1
         return normalized_dist_left < threshold or normalized_dist_right < threshold
+
+    @staticmethod
+    def bbox_centroid(bbox) -> tuple[float, float]:
+        x_min, y_min, x_max, y_max = bbox
+        x_centroid = (x_min + x_max) / 2
+        y_centroid = (y_min + y_max) / 2
+        return x_centroid, y_centroid
+
+    @staticmethod
+    def keypoints_centroid(keypoints) -> tuple[float, float]:
+        x_coords = [kp[0] for kp in keypoints]
+        y_coords = [kp[1] for kp in keypoints]
+
+        # Calculate the centroid
+        x_centroid = np.mean(x_coords).__float__()
+        y_centroid = np.mean(y_coords).__float__()
+
+        return x_centroid, y_centroid
+
+    @staticmethod
+    def euclidean_distance(p1, p2):
+        return np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+
+    # apply Geometric Centroid Matching to find which pose maps to which person
+    def match_bboxes_to_keypoints(self, bboxes, poses):
+        bbox_centroids = [self.bbox_centroid(bbox) for bbox, _ in bboxes]
+        pose_centroids = [self.keypoints_centroid(pose) for pose in poses]
+
+        matches: dict[int, int] = {}
+
+        # For each bounding box, find the closest keypoints centroid
+        for i, bbox_c in enumerate(bbox_centroids):
+            min_distance = float('inf')
+            best_pose_idx = -1
+
+            for j, pose_c in enumerate(pose_centroids):
+                dist = self.euclidean_distance(bbox_c, pose_c)
+                if dist < min_distance:
+                    min_distance = dist
+                    best_pose_idx = j
+
+            matches[i] = best_pose_idx
+
+        return matches
