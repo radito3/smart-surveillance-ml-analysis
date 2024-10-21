@@ -45,6 +45,7 @@ class TopicQueue(Queue):
             if self.interrupted:
                 return False
 
+            # if backpressure is to be implemented, consider linear blending of images (cv2.addWeighted)
             super().put((item, 0, max_reads))
             self.condition.notify_all()
         return True

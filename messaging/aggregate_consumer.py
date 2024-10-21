@@ -20,7 +20,14 @@ class AggregateConsumer(Consumer):
 
     def __next__(self) -> any:
         aggregate_msg: dict[str, any] = {}
+        should_stop: bool = False
         for delegate in self.delegates:
-            message = delegate.__next__()
-            aggregate_msg[delegate.topic] = message
+            try:
+                message = delegate.__next__()
+                aggregate_msg[delegate.topic] = message
+            except StopIteration:
+                # do not fail-fast in this case, wait for all the downstream consumers
+                should_stop = True
+        if should_stop:
+            raise StopIteration
         return aggregate_msg
