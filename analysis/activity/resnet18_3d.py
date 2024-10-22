@@ -18,7 +18,7 @@ class ActivityRecognitionAnalyzer:
             reader = csv.DictReader(csvfile)
             self.kinetics_classes = [row['name'] for row in reader]
 
-    def analyze_video_window(self, window: list[cv2.typing.MatLike]) -> int:
+    def predict_activity(self, window: list[cv2.typing.MatLike]) -> int:
         preprocessed_frames = self.__preprocess_frames(window)
 
         with torch.no_grad():

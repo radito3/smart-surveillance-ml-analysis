@@ -16,19 +16,12 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
     def get_name(self) -> str:
         return 'human-object-interaction-app'
 
-    # might not be the most optimized implementation, but it doesn't contain any NN model, just in-memory calculations
     def consume_message(self, message: dict[str, any]):
-        yolo_results = message['object_detection_results']
+        objects = message['object_detection_results']
         pose_results = message['pose_detection_results']
-        people = [(bbox, track_id) for bbox, track_id, cls, _ in yolo_results if cls == 0]
-        objects = [(bbox, cls) for bbox, _, cls, _ in yolo_results if cls != 0]
-        # FIXME: ensure uniqueness of pairings - currently more than one person is matched to a pose
-        people_to_poses = self.match_bboxes_to_keypoints(people, pose_results)
 
         results: list[list[int]] = []
-        for i, (person_bbox, track_id) in enumerate(people):
-            # print(f"bbox idx: {i} pose idx: {people_to_poses[i]}")
-            person_kpts = pose_results[people_to_poses[i]]
+        for person_bbox, track_id, person_kpts in pose_results:
             track_id_key: int = int(track_id.item()) if isinstance(track_id, torch.Tensor) else int(track_id)
             interacting_with_object: bool = False
 
@@ -43,11 +36,11 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
                     results.append([1, self.interaction_durations[track_id_key], cls])
                     break  # only account for a single object being interacted with
 
-            # ensure the HOI vector is the same size as the YOLO vector
+            # ensure the HOI vector is the same size as the number of people
             if not interacting_with_object:
                 results.append([0, 0, -1])
 
-        self.clear_people_no_longer_in_frame(people)
+        self.clear_people_no_longer_in_frame(pose_results)
         self.produce_value('hoi_results', results)
 
     def cleanup(self):
@@ -67,7 +60,7 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
     def clear_people_no_longer_in_frame(self, people):
         for track_id in list(self.interaction_durations.keys()):
             present: bool = False
-            for _, _track_id in people:
+            for _, _track_id, _ in people:
                 track_id_key = int(_track_id.item()) if isinstance(_track_id, torch.Tensor) else int(_track_id)
                 if track_id_key == track_id:
                     present = True
@@ -114,47 +107,3 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
 
         threshold = 0.1
         return normalized_dist_left < threshold or normalized_dist_right < threshold
-
-    @staticmethod
-    def bbox_centroid(bbox) -> tuple[float, float]:
-        x_min, y_min, x_max, y_max = bbox
-        x_centroid = (x_min + x_max) / 2
-        y_centroid = (y_min + y_max) / 2
-        return x_centroid, y_centroid
-
-    @staticmethod
-    def keypoints_centroid(keypoints) -> tuple[float, float]:
-        x_coords = [kp[0] for kp in keypoints]
-        y_coords = [kp[1] for kp in keypoints]
-
-        # Calculate the centroid
-        x_centroid = np.mean(x_coords).__float__()
-        y_centroid = np.mean(y_coords).__float__()
-
-        return x_centroid, y_centroid
-
-    @staticmethod
-    def euclidean_distance(p1, p2):
-        return np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
-
-    # apply Geometric Centroid Matching to find which pose maps to which person
-    def match_bboxes_to_keypoints(self, bboxes, poses):
-        bbox_centroids = [self.bbox_centroid(bbox) for bbox, _ in bboxes]
-        pose_centroids = [self.keypoints_centroid(pose) for pose in poses]
-
-        matches: dict[int, int] = {}
-
-        # For each bounding box, find the closest keypoints centroid
-        for i, bbox_c in enumerate(bbox_centroids):
-            min_distance = float('inf')
-            best_pose_idx = -1
-
-            for j, pose_c in enumerate(pose_centroids):
-                dist = self.euclidean_distance(bbox_c, pose_c)
-                if dist < min_distance:
-                    min_distance = dist
-                    best_pose_idx = j
-
-            matches[i] = best_pose_idx
-
-        return matches

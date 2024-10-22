@@ -13,7 +13,7 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
 
     def __init__(self, broker: Broker, fps: int, window_size: timedelta, window_step: int):
         Producer.__init__(self, broker)
-        AggregateConsumer.__init__(self, broker, ['object_detection_results', 'video_source'])
+        AggregateConsumer.__init__(self, broker, ['pose_detection_results', 'video_source'])
         self._num_frames: int = int(fps * window_size.total_seconds())
         self._buffer: list[list[tuple[any, cv2.typing.MatLike]]] = []
         self._window_step: int = window_step
@@ -28,7 +28,7 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
     def consume_message(self, message: dict[str, any]):
         if len(self._buffer) < self._num_frames:
             frame = message['video_source']
-            yolo_results = message['object_detection_results']
+            yolo_results = message['pose_detection_results']
             self._buffer.append(self.extract_sub_regions_for_people(frame, yolo_results))
             return
         result = self.analyze_video_window(self._buffer)
@@ -39,7 +39,7 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
         self.produce_value('activity_detection_results', None)
 
     def extract_sub_regions_for_people(self, frame: cv2.typing.MatLike, yolo_results) -> list[tuple[any, cv2.typing.MatLike]]:
-        return [(track_id, self._extract_frame_subregion(frame, bbox)) for bbox, track_id, cls, _ in yolo_results if cls == 0]
+        return [(track_id, self._extract_frame_subregion(frame, bbox)) for bbox, track_id, _ in yolo_results]
 
     @staticmethod
     def _extract_frame_subregion(frame, bbox) -> cv2.typing.MatLike:
@@ -63,7 +63,7 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
 
         for track_id, sub_region_window in sub_regions_windows_per_tracking_id.items():
             # use submit instead of map to preserve order of tracking IDs
-            future = executor.submit(self._activity_analyzer.analyze_video_window, sub_region_window)
+            future = executor.submit(self._activity_analyzer.predict_activity, sub_region_window)
             futures.append((track_id, future))
 
         results = [future.result() for _, future in futures]

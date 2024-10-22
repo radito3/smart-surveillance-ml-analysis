@@ -22,7 +22,7 @@ class SuspiciousActivityClassifier(Producer, Consumer):
                 else:
                     self.whitelist_activities_indices.extend(parsed)
         else:
-            self.whitelist_activities_indices = [2, 8]  # temp
+            self.whitelist_activities_indices = [2, 8]  # sample activity indices
 
     def get_name(self) -> str:
         return 'suspicious-activity-classifier-app'

@@ -36,45 +36,44 @@ class TopologyBuilder:
                 broker.add_subscriber_for('video_source', object_detector)
                 broker.add_subscriber_for('video_source', pose_detector)
                 broker.add_subscriber_for('video_source', activity_detector)
-                broker.add_subscriber_for('object_detection_results', activity_detector)
+                broker.add_subscriber_for('pose_detection_results', activity_detector)
                 broker.add_subscriber_for('object_detection_results', hoi_detector)
                 broker.add_subscriber_for('pose_detection_results', hoi_detector)
-                broker.add_subscriber_for('object_detection_results', classifier)
                 broker.add_subscriber_for('pose_detection_results', classifier)
                 broker.add_subscriber_for('hoi_results', classifier)
                 broker.add_subscriber_for('activity_detection_results', classifier)
                 broker.add_subscriber_for('classification_results', sink)
             case "activity":
-                object_detector = ObjectDetector(broker)
+                pose_detector = PoseDetector(broker)
                 activity_detector = MultiPersonActivityRecognitionAnalyzer(broker, 24, timedelta(seconds=2), 12)
 
                 classifier = SuspiciousActivityClassifier(broker)
 
                 sink = BinaryResultConsumer(broker, notification_webhook_url)
 
-                topics = ['video_source', 'video_dimensions', 'object_detection_results', 'activity_detection_results',
+                topics = ['video_source', 'video_dimensions', 'pose_detection_results', 'activity_detection_results',
                           'classification_results']
                 for topic in topics:
                     broker.create_topic(topic)
 
-                broker.add_subscriber_for('video_source', object_detector)
+                broker.add_subscriber_for('video_source', pose_detector)
                 broker.add_subscriber_for('video_source', activity_detector)
-                broker.add_subscriber_for('object_detection_results', activity_detector)
+                broker.add_subscriber_for('pose_detection_results', activity_detector)
                 broker.add_subscriber_for('activity_detection_results', classifier)
                 broker.add_subscriber_for('classification_results', sink)
             case "presence":
-                object_detector = ObjectDetector(broker)
+                pose_detector = PoseDetector(broker)
 
                 classifier = SimplePresenceClassifier(broker)
 
                 sink = BinaryResultConsumer(broker, notification_webhook_url)
 
-                topics = ['video_source', 'video_dimensions', 'object_detection_results', 'classification_results']
+                topics = ['video_source', 'video_dimensions', 'pose_detection_results', 'classification_results']
                 for topic in topics:
                     broker.create_topic(topic)
 
-                broker.add_subscriber_for('video_source', object_detector)
-                broker.add_subscriber_for('object_detection_results', classifier)
+                broker.add_subscriber_for('video_source', pose_detector)
+                broker.add_subscriber_for('pose_detection_results', classifier)
                 broker.add_subscriber_for('classification_results', sink)
         return broker
 
@@ -102,10 +101,9 @@ class TopologyBuilder:
         broker.add_subscriber_for('video_source', object_detector)
         broker.add_subscriber_for('video_source', pose_detector)
         broker.add_subscriber_for('video_source', activity_detector)
-        broker.add_subscriber_for('object_detection_results', activity_detector)
+        broker.add_subscriber_for('pose_detection_results', activity_detector)
         broker.add_subscriber_for('object_detection_results', hoi_detector)
         broker.add_subscriber_for('pose_detection_results', hoi_detector)
-        broker.add_subscriber_for('object_detection_results', classifier)
         broker.add_subscriber_for('pose_detection_results', classifier)
         broker.add_subscriber_for('hoi_results', classifier)
         broker.add_subscriber_for('activity_detection_results', classifier)

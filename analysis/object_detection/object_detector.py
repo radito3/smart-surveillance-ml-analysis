@@ -1,6 +1,5 @@
 import cv2.typing
 import torch
-import ultralytics.engine.results
 from ultralytics import YOLO
 
 from messaging.broker_interface import Broker
@@ -35,13 +34,11 @@ class ObjectDetector(Producer, Consumer):
 
     def consume_message(self, frame: cv2.typing.MatLike):
         with torch.no_grad():
-            # we need `track` instead of `predict` because we need to keep track of objects between frames
-            # this may not be needed if we aren't using the GraphLSTM classifier
-            # persist=True to preserve tracker IDs between calls
-            results = self.model.track(frame, persist=True, verbose=False)[0]
-        boxes: ultralytics.engine.results.Boxes = results.boxes.cpu()  # bounding boxes
+            results = self.model(frame, verbose=False)[0]
+        boxes = results.boxes.cpu()
         if len(boxes.data) != 0:
-            self.produce_value('object_detection_results', [*zip(boxes.xyxy, boxes.id, boxes.cls, boxes.conf)])
+            # class 0 is 'person'
+            self.produce_value('object_detection_results', [(bbox, cls) for bbox, cls in zip(boxes.xyxy, boxes.cls) if cls != 0])
         else:
             self.produce_value('object_detection_results', [])
 
