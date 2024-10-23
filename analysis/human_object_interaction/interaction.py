@@ -20,7 +20,7 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
         objects = message['object_detection_results']
         pose_results = message['pose_detection_results']
 
-        results: list[list[int]] = []
+        results: list[tuple[any, list[int]]] = []
         for person_bbox, track_id, person_kpts in pose_results:
             track_id_key: int = int(track_id.item()) if isinstance(track_id, torch.Tensor) else int(track_id)
             interacting_with_object: bool = False
@@ -33,12 +33,12 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
                     else:
                         self.interaction_durations[track_id_key] = 1
                     # is_interacting, interaction_duration, detected_object_class_index
-                    results.append([1, self.interaction_durations[track_id_key], cls])
+                    results.append((track_id, [1, self.interaction_durations[track_id_key], cls]))
                     break  # only account for a single object being interacted with
 
             # ensure the HOI vector is the same size as the number of people
             if not interacting_with_object:
-                results.append([0, 0, -1])
+                results.append((track_id, [0, 0, -1]))
 
         self.clear_people_no_longer_in_frame(pose_results)
         self.produce_value('hoi_results', results)

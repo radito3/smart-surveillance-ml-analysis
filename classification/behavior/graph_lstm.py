@@ -105,7 +105,8 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
                                   dtype=np.float32)
         activities = np.array([activity_idx for track_id, activity_idx in detected_activities if
                                self.__contains_by_id(detections, track_id)], dtype=np.float32)
-        object_interactions = np.array(hoi_results, dtype=np.float32)
+        object_interactions = np.array([results for track_id, results in hoi_results if
+                                        self.__contains_by_id(detections, track_id)], dtype=np.float32)
 
         features = np.hstack((object_interactions.reshape(object_interactions.shape[0], -1),
                               body_positions.reshape(body_positions.shape[0], -1),
