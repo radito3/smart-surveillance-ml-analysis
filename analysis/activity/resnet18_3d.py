@@ -1,6 +1,5 @@
 import torch
 import cv2
-import csv
 import numpy as np
 from torchvision.models.video import r3d_18, R3D_18_Weights
 
@@ -13,10 +12,6 @@ class ActivityRecognitionAnalyzer:
         self.device = get_device()
         self.model = r3d_18(weights=R3D_18_Weights.KINETICS400_V1).to(self.device)
         self.model.compile() if torch.cuda.is_available() else None
-        # Load the class labels
-        with open('analysis/activity/kinetics_400_labels.csv', 'r', newline='') as csvfile:
-            reader = csv.DictReader(csvfile)
-            self.kinetics_classes = [row['name'] for row in reader]
 
     def predict_activity(self, window: list[cv2.typing.MatLike]) -> int:
         preprocessed_frames = self.__preprocess_frames(window)
@@ -24,38 +19,17 @@ class ActivityRecognitionAnalyzer:
         with torch.no_grad():
             outputs = self.model(preprocessed_frames)
             probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            # should this be copied to CPU memory?
-            predicted_class = int(torch.argmax(probabilities, dim=1).item())
+            predicted_class = int(torch.argmax(probabilities, dim=1).cpu().item())
 
         return predicted_class
 
-    def __preprocess_frames_cpu(self, frames, input_size=(112, 112)):
-        # Pre-allocate a NumPy array for all frames in CHW format
-        num_frames = len(frames)
-        processed_frames = np.empty((num_frames, 3, input_size[0], input_size[1]), dtype=np.float32)
-
-        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-
-        for i, frame in enumerate(frames):
-            # Convert frames from BGR (OpenCV default) to RGB
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            # Resize frame
-            resized_frame = cv2.resize(rgb_frame, input_size)
-            # Normalize the frame
-            resized_frame = resized_frame / 255.0
-            resized_frame = (resized_frame - mean) / std
-            # Convert to CHW format (HWC to CHW)
-            processed_frames[i] = np.transpose(resized_frame, (2, 0, 1))
-
-        # Convert the processed frames to a tensor and add batch dimension
-        return torch.tensor(processed_frames).unsqueeze(0)  # Shape: [1, T, C, H, W]
-
     def __preprocess_frames(self, in_frames, input_size=(112, 112)):
-        # Convert frames to a NumPy array and move them to the GPU
+        # Convert frames to a NumPy array first and move them to the GPU due to a PyTorch warning that states:
+        # Creating a tensor from a list of numpy.ndarrays is extremely slow.
+        # Please consider converting the list to a single numpy.ndarray with numpy.array() before converting to a tensor.
         np_frames = np.array([cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), input_size) for frame in in_frames],
                              dtype=np.float32)
-        frames: torch.Tensor = torch.tensor(np_frames).to(self.device)
+        frames = torch.from_numpy(np_frames).to(self.device)
 
         # Normalize the frames (operating on GPU tensors)
         frames /= 255.0
@@ -66,7 +40,7 @@ class ActivityRecognitionAnalyzer:
         # Convert HWC to CHW by permuting dimensions and adding batch dimension
         frames = frames.permute(0, 3, 1, 2)  # From (T, H, W, C) to (T, C, H, W)
 
-        # Add a batch dimension and return the tensor
+        # Add a batch dimension
         frames = frames.unsqueeze(0)  # Shape: [1, T, C, H, W]
         frames = frames.permute(0, 2, 1, 3, 4)  # Shape: [1, C, T, H, W]
         return frames
