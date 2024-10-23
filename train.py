@@ -154,7 +154,7 @@ if __name__ == '__main__':
         'lstm_layers': [1, 2]
     }
     # TODO: set the hyperparams based on the config
-    model = GraphBasedLSTMClassifier(node_features=5).to(get_device())
+    model = GraphBasedLSTMClassifier(node_features=12).to(get_device())
     model.compile() if torch.cuda.is_available() else None
 
     train_model(model, training_loader, validation_loader, epochs)

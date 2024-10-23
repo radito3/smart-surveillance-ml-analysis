@@ -24,7 +24,7 @@ class TopologyBuilder:
                 hoi_detector = HumanObjectInteractionAnalyzer(broker)
                 activity_detector = MultiPersonActivityRecognitionAnalyzer(broker, 24, timedelta(seconds=2), 12)
 
-                classifier = CompositeBehaviouralClassifier(broker, 5, 48, 12)
+                classifier = CompositeBehaviouralClassifier(broker, 12, 48, 12)
 
                 sink = ProbabilityResultConsumer(broker, notification_webhook_url)
 
@@ -88,7 +88,7 @@ class TopologyBuilder:
         hoi_detector = HumanObjectInteractionAnalyzer(broker)
         activity_detector = MultiPersonActivityRecognitionAnalyzer(broker, fps, timedelta(seconds=2), window_step)
 
-        classifier = CompositeBehaviouralClassifier(broker, 5, window_size, window_step)
+        classifier = CompositeBehaviouralClassifier(broker, 12, window_size, window_step)
         classifier.inject_model(model)
 
         sink = TrainingSink(broker)

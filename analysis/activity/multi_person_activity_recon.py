@@ -46,7 +46,7 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
         xmin, ymin, xmax, ymax = bbox
         return frame[floor(ymin):ceil(ymax), floor(xmin):ceil(xmax)]
 
-    def analyze_video_window(self, window: list[list[tuple[any, cv2.typing.MatLike]]]) -> list[int]:
+    def analyze_video_window(self, window: list[list[tuple[any, cv2.typing.MatLike]]]) -> list[tuple[any, int]]:
         futures = []
 
         sub_regions_windows_per_tracking_id = {}
@@ -57,15 +57,12 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
                 else:
                     sub_regions_windows_per_tracking_id[track_id.item()] = [sub_region]
 
-        # Python 3.13 introduces experimental support for free-threading mode (PEP 703)
-        # which solves the GIL bottleneck for CPU-bound multithreaded tasks
         executor = cf.ThreadPoolExecutor(max_workers=10)
-
         for track_id, sub_region_window in sub_regions_windows_per_tracking_id.items():
             # use submit instead of map to preserve order of tracking IDs
             future = executor.submit(self._activity_analyzer.predict_activity, sub_region_window)
             futures.append((track_id, future))
 
-        results = [future.result() for _, future in futures]
+        results = [(track_id, future.result()) for track_id, future in futures]
         executor.shutdown(wait=False, cancel_futures=True)
         return results

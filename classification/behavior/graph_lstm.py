@@ -81,8 +81,8 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
          - is_interacting,                   # Binary: Is there interaction or not
          - interaction_duration,             # How long the interaction has lasted
          - detected_object_class_index       # YOLO object class index (e.g., 0 for person, 39 for bottle, etc.)
-         - One-hot encoded body positions
-            standing, sitting, laying_down, crouching, bending_over, walking, ...
+         - One-hot encoded body positions:
+            [standing, sitting, laying down, crouching, bending over]
          - body_orientation,                 # Where a person is facing
          - velocity,                         # Current velocity (based on keypoints)
          - average_velocity,                 # Average velocity over a sequence of time steps
@@ -92,32 +92,26 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         """
 
         detections = [(box_tensor, box_id) for box_tensor, box_id, _ in pose_results]
-
         centroids_current = np.array([self._calc_centroid(bbox) for bbox, _ in detections])
-
         # Velocity can be the magnitude of change in position
         velocities = self._calc_velocities(detections)
-
         self._save_velocities(zip(detections, velocities))
 
         average_velocities = self._calc_avg_velocities(detections)
-
         # Direction can be encapsulated as the angle of orientation
-        orientations = np.array([self._calculate_orientation(keypoints) for _, _, keypoints in pose_results], dtype=np.float32)
+        orientations = np.array([self._calculate_orientation(keypoints) for _, _, keypoints in pose_results],
+                                dtype=np.float32)
+        body_positions = np.array([self._classify_position(keypoints) for _, _, keypoints in pose_results],
+                                  dtype=np.float32)
+        activities = np.array([activity_idx for track_id, activity_idx in detected_activities if
+                               self.__contains_by_id(detections, track_id)], dtype=np.float32)
+        object_interactions = np.array(hoi_results, dtype=np.float32)
 
-        body_positions = np.array([self._classify_position(keypoints) for _, _, keypoints in pose_results], dtype=np.float32)
-
-        activities = np.array(detected_activities, dtype=np.float32).flatten()
-
-        # FIXME: the paddings are still insufficient sometimes and np.hstack throws an error
-        if len(activities) < len(detections):
-            for _ in range(len(detections) - len(activities)):
-                activities = np.append(activities, -1)
-        if len(activities) > len(detections):
-            activities = np.delete(activities, len(activities) - 1)
-
-        features = np.hstack((body_positions.reshape(-1, 1), velocities.reshape(-1, 1),
-                              average_velocities.reshape(-1, 1), orientations.reshape(-1, 1),
+        features = np.hstack((object_interactions.reshape(object_interactions.shape[0], -1),
+                              body_positions.reshape(body_positions.shape[0], -1),
+                              orientations.reshape(-1, 1),
+                              velocities.reshape(-1, 1),
+                              average_velocities.reshape(-1, 1),
                               activities.reshape(-1, 1)))
 
         edges = []
@@ -155,6 +149,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
 
     def _calc_velocities(self, detections) -> np.array:
         if len(self.prev_detections) > 0:
+            # TODO: improve this piece of garbage
             if len(detections) > len(self.prev_detections):
                 generator = zip_longest(detections, self.prev_detections,
                                         fillvalue=(np.zeros(4, dtype=np.float32), -1))
@@ -179,14 +174,9 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
                 self.velocities.update({id_val: [velocity]})
 
     def _calc_avg_velocities(self, detections) -> np.array:
-        def __contains_by_id(track_id: int) -> bool:
-            for _, _id in detections:
-                if _id == track_id:
-                    return True
-            return False
-
         return np.array(
-            [np.average(velocities) for track_id, velocities in self.velocities.items() if __contains_by_id(track_id)],
+            [np.average(velocities) for track_id, velocities in self.velocities.items() if
+             self.__contains_by_id(detections, track_id)],
             dtype=np.float32)
 
     @staticmethod
@@ -195,84 +185,59 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         return np.array([(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)
 
     @staticmethod
-    def _classify_position(keypoints) -> int:
+    def _classify_position(keypoints) -> list[int]:
+        # 0: Nose 1: Left Eye 2: Right Eye 3: Left Ear 4: Right Ear 5: Left Shoulder 6: Right Shoulder 7: Left Elbow
+        # 8: Right Elbow 9: Left Wrist 10: Right Wrist 11: Left Hip 12: Right Hip 13: Left Knee 14: Right Knee
+        # 15: Left Ankle 16: Right Ankle
+
+        # Get relevant y-coordinates from the keypoints
         head_y = keypoints[0][1]
-        # shoulders_y = (keypoints[5][1] + keypoints[6][1]) / 2
+        shoulders_y = (keypoints[5][1] + keypoints[6][1]) / 2
         hips_y = (keypoints[11][1] + keypoints[12][1]) / 2
         knees_y = (keypoints[13][1] + keypoints[14][1]) / 2
+        ankles_y = (keypoints[15][1] + keypoints[16][1]) / 2
 
-        # TODO: adapt this
-        # head = np.array(keypoints['head'])
-        # left_shoulder = np.array(keypoints['left_shoulder'])
-        # right_shoulder = np.array(keypoints['right_shoulder'])
-        # left_hip = np.array(keypoints['left_hip'])
-        # right_hip = np.array(keypoints['right_hip'])
-        # left_knee = np.array(keypoints['left_knee'])
-        # right_knee = np.array(keypoints['right_knee'])
-        # left_ankle = np.array(keypoints['left_ankle'])
-        # right_ankle = np.array(keypoints['right_ankle'])
-        #
-        # # Average keypoints for symmetry
-        # shoulders = (left_shoulder + right_shoulder) / 2
-        # hips = (left_hip + right_hip) / 2
-        # knees = (left_knee + right_knee) / 2
-        # ankles = (left_ankle + right_ankle) / 2
-        #
-        # # Calculate vertical distances between keypoints
-        # shoulder_hip_dist = np.abs(shoulders[1] - hips[1])
-        # hip_knee_dist = np.abs(hips[1] - knees[1])
-        # knee_ankle_dist = np.abs(knees[1] - ankles[1])
-        # head_ankle_dist = np.abs(head[1] - ankles[1])
-        #
-        # # Thresholds (can be adjusted based on the use case)
-        # standing_threshold = 0.4 * head_ankle_dist  # Standing requires vertical alignment
-        # sitting_threshold = 0.2 * head_ankle_dist  # Sitting makes hips close to knees
-        # laying_down_threshold = 50  # Low vertical distance between all points
-        #
-        # # Initialize one-hot encoding for 5 body positions: [standing, sitting, laying down, crouching, bending over]
-        # one_hot_position = [0, 0, 0, 0, 0]
-        #
-        # # Detect body position
-        # if knee_ankle_dist > standing_threshold and hip_knee_dist > standing_threshold:
-        #     # Standing: knees are far from ankles and hips are far from knees
-        #     one_hot_position[0] = 1  # Standing
-        #
-        # elif hip_knee_dist < sitting_threshold and knee_ankle_dist > sitting_threshold:
-        #     # Sitting: hips are closer to knees but knees are far from ankles
-        #     one_hot_position[1] = 1  # Sitting
-        #
-        # elif shoulder_hip_dist < laying_down_threshold and hip_knee_dist < laying_down_threshold:
-        #     # Laying down: All major points are close vertically
-        #     one_hot_position[2] = 1  # Laying down
-        #
-        # elif hip_knee_dist < sitting_threshold and knee_ankle_dist < standing_threshold:
-        #     # Crouching: Hips are close to knees and knees close to ankles
-        #     one_hot_position[3] = 1  # Crouching
-        #
-        # elif shoulders[1] > hips[1] and hip_knee_dist > standing_threshold:
-        #     # Bending over: Shoulders are significantly lower than hips
-        #     one_hot_position[4] = 1  # Bending over
-        #
-        # return one_hot_position
+        # Calculate the total height from head to ankles
+        head_ankle_dist = np.abs(head_y - ankles_y)
 
-        if abs(head_y - hips_y) > 0.5 * abs(hips_y - knees_y):
-            return 0  # Standing
-        elif abs(head_y - hips_y) > 0.2 * abs(hips_y - knees_y):
-            return 1  # Sitting
-        else:
-            return -1  # Lying Down
+        # Compute relative vertical distances between keypoints
+        shoulder_hip_dist = np.abs(shoulders_y - hips_y)
+        hip_knee_dist = np.abs(hips_y - knees_y)
+        knee_ankle_dist = np.abs(knees_y - ankles_y)
+
+        # Proportional thresholds based on total body height (head to ankle)
+        standing_threshold = 0.4 * head_ankle_dist  # Standing requires vertical alignment
+        sitting_threshold = 0.2 * head_ankle_dist  # Sitting brings hips closer to knees
+        laying_down_threshold = 0.1 * head_ankle_dist  # Low vertical distance between keypoints
+
+        # Initialize one-hot encoding for 5 body positions: [standing, sitting, laying down, crouching, bending over]
+        one_hot_position = [0, 0, 0, 0, 0]
+
+        # Detect body position based on relative distances
+        if knee_ankle_dist > standing_threshold and hip_knee_dist > standing_threshold:
+            # Standing: knees are far from ankles, and hips are far from knees
+            one_hot_position[0] = 1  # Standing
+
+        elif hip_knee_dist < sitting_threshold < knee_ankle_dist:
+            # Sitting: hips are closer to knees but knees are far from ankles
+            one_hot_position[1] = 1  # Sitting
+
+        elif shoulder_hip_dist < laying_down_threshold and hip_knee_dist < laying_down_threshold:
+            # Laying down: All major points are close vertically
+            one_hot_position[2] = 1  # Laying down
+
+        elif hip_knee_dist < sitting_threshold and knee_ankle_dist < standing_threshold:
+            # Crouching: hips are close to knees and knees close to ankles
+            one_hot_position[3] = 1  # Crouching
+
+        elif shoulders_y > hips_y and hip_knee_dist > standing_threshold:
+            # Bending over: shoulders are significantly lower than hips
+            one_hot_position[4] = 1  # Bending over
+
+        return one_hot_position
 
     @staticmethod
     def _calculate_orientation(keypoints):
-        """
-        Calculate the orientation of the person in radians.
-
-        Args:
-            keypoints (ndarray): Array of shape (num_keypoints, 3 (x, y, confidence)).
-
-        Returns:
-            float: Orientation in radians.
-        """
         left_shoulder = keypoints[5][:2]
         right_shoulder = keypoints[6][:2]
 
