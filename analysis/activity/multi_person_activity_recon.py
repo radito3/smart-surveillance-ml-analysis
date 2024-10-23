@@ -26,14 +26,14 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
         self._activity_analyzer = ActivityRecognitionAnalyzer()
 
     def consume_message(self, message: dict[str, any]):
-        if len(self._buffer) < self._num_frames:
-            frame = message['video_source']
-            yolo_results = message['pose_detection_results']
-            self._buffer.append(self.extract_sub_regions_for_people(frame, yolo_results))
-            return
-        result = self.analyze_video_window(self._buffer)
-        self._buffer = self._buffer[self._window_step:]
-        self.produce_value('activity_detection_results', result)
+        if len(self._buffer) >= self._num_frames:
+            result = self.analyze_video_window(self._buffer)
+            self.produce_value('activity_detection_results', result)
+            self._buffer = self._buffer[self._window_step:]
+
+        frame = message['video_source']
+        yolo_results = message['pose_detection_results']
+        self._buffer.append(self.extract_sub_regions_for_people(frame, yolo_results))
 
     def cleanup(self):
         self.produce_value('activity_detection_results', None)
