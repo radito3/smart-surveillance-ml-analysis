@@ -4,5 +4,4 @@ ultralytics
 torch
 torchvision
 torch_geometric
-grpcio
-grpcio-tools
+requests
