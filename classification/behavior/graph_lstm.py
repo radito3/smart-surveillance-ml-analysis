@@ -26,10 +26,10 @@ class GraphNetWithSAGPooling(torch.nn.Module):
         self.global_pool = global_mean_pool if global_pool_type == 'mean' else global_max_pool
 
     def forward(self, data):
-        x, edge_index, batch = data.x, data.edge_index, data.batch
-        x = torch.relu(self.conv1(x, edge_index))
-        x, edge_index, _, batch, _, _ = self.filter_pool(x, edge_index, None, batch)
-        x = torch.relu(self.conv2(x, edge_index))
+        x, edge_index, batch, edge_weight = data.x, data.edge_index, data.batch, data.edge_weight
+        x = torch.relu(self.conv1(x, edge_index, edge_weight))
+        x, edge_index, edge_weight, batch, _, _ = self.filter_pool(x, edge_index, edge_weight, batch)
+        x = torch.relu(self.conv2(x, edge_index, edge_weight))
         x = self.global_pool(x, batch)  # Enforce a fixed-sized output
         return x
 
