@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import GCNConv, global_mean_pool, global_max_pool, SAGPooling
 from torch_geometric.data import Data
-from itertools import zip_longest
 from math import sqrt
 
 from messaging.aggregate_consumer import AggregateConsumer
@@ -108,6 +107,12 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         object_interactions = np.array([results for track_id, results in hoi_results if
                                         self.__contains_by_id(detections, track_id)], dtype=np.float32)
 
+        if len(object_interactions) < len(detections):
+            object_interactions = np.vstack([object_interactions]
+                                            + [[0, 0, -1] for _ in range(len(detections) - len(object_interactions))])
+        if len(activities) < len(detections):
+            activities = np.append(activities, [0 for _ in range(len(detections) - len(activities))])
+
         features = np.hstack((object_interactions.reshape(object_interactions.shape[0], -1),
                               body_positions.reshape(body_positions.shape[0], -1),
                               orientations.reshape(-1, 1),
@@ -150,18 +155,13 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
 
     def _calc_velocities(self, detections) -> np.array:
         if len(self.prev_detections) > 0:
-            # TODO: improve this piece of garbage
             if len(detections) > len(self.prev_detections):
-                generator = zip_longest(detections, self.prev_detections,
-                                        fillvalue=(np.zeros(4, dtype=np.float32), -1))
-            else:
-                generator = zip(detections,
-                                filter(lambda tpl: self.__contains_by_id(detections, tpl[1]), self.prev_detections))
+                self.prev_detections.extend([(torch.zeros((4,), dtype=torch.float32), -1)
+                                             for _ in range(len(detections) - len(self.prev_detections))])
+
             displacement = [self._calc_centroid(current_bbox) - self._calc_centroid(prev_bbox)
                             if current_id == prev_id else np.zeros(2, dtype=np.float32)
-                            for (current_bbox, current_id), (prev_bbox, prev_id) in generator
-                            ]
-
+                            for (current_bbox, current_id), (prev_bbox, prev_id) in zip(detections, self.prev_detections)]
             return np.linalg.norm(displacement, axis=1)
         else:
             return np.zeros(len(detections))
@@ -172,13 +172,17 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
             if id_val in self.velocities:
                 self.velocities[id_val].append(velocity)
             else:
-                self.velocities.update({id_val: [velocity]})
+                self.velocities[id_val] = [velocity]
 
     def _calc_avg_velocities(self, detections) -> np.array:
-        return np.array(
-            [np.average(velocities) for track_id, velocities in self.velocities.items() if
-             self.__contains_by_id(detections, track_id)],
-            dtype=np.float32)
+        result = np.array([np.average(velocities)
+                           for track_id, velocities in self.velocities.items()
+                           if self.__contains_by_id(detections, track_id)],
+                          dtype=np.float32)
+        if len(result) < len(detections):
+            diff = len(detections) - len(result)
+            result = np.append(result, [0.0 for _ in range(diff)])
+        return result
 
     @staticmethod
     def _calc_centroid(bbox) -> np.ndarray:
@@ -306,8 +310,8 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
         detected_activities = message['activity_detection_results']
 
         graph_data_sequences = [
-            self.classifier.create_graph(pose_results, hoi_results, detected_activities) for
-            pose_results, hoi_results in zip(pose_buffer, hoi_buffer)
+            self.classifier.create_graph(pose_results, hoi_results, detected_activities)
+            for pose_results, hoi_results in zip(pose_buffer, hoi_buffer)
         ]
 
         if not self.classifier.training:

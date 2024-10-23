@@ -43,7 +43,11 @@ class PoseDetector(Producer, Consumer):
         bboxes = results.boxes.cpu()
         if len(bboxes.data) != 0:
             kpts = results.keypoints.cpu().xy
-            self.produce_value('pose_detection_results', [*zip(bboxes.xyxy, bboxes.id, kpts)])
+            ids = bboxes.id
+            if ids is None:
+                # a non-existent ID so that no entries match it
+                ids = [torch.tensor(-2.0) for _ in range(len(kpts))]
+            self.produce_value('pose_detection_results', [*zip(bboxes.xyxy, ids, kpts)])
         else:
             self.produce_value('pose_detection_results', [])
 
