@@ -76,7 +76,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
                     edge_attr=torch.tensor(edge_weights, dtype=torch.float)
                     )
 
-    def _extract_graph(self, pose_results, hoi_results, detected_activities) -> tuple[np.array, list, list]:
+    def _extract_graph(self, pose_results, hoi_results, detected_activities):
         """
         The node features are:
          - is_interacting,                   # Binary: Is there interaction or not
