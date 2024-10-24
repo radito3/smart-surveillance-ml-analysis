@@ -59,7 +59,8 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         embeddings = []
         for data in graph_data_sequences:
             data.to(get_device())
-            graph_embedding = self.gnn(data)
+            graph_embedding = self.gnn(data) if len(data.x) > 0 else torch.tensor(
+                [0.0 for _ in range(self.lstm.input_size)], device=get_device())
             embeddings.append(graph_embedding.unsqueeze(1))  # Add sequence dimension
         embeddings = torch.cat(embeddings, dim=1)  # Shape: (batch_size, sequence_length, features)
 
@@ -68,13 +69,15 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         return torch.sigmoid(predictions)
 
     def create_graph(self, pose_results, hoi_results, detected_activities):
+        if len(pose_results) == 0:
+            return Data(x=torch.empty((0,)))
         nodes, edges, edge_weights = self._extract_graph(pose_results, hoi_results, detected_activities)
         return Data(x=torch.tensor(nodes, dtype=torch.float),
                     edge_index=torch.tensor(edges, dtype=torch.long).t().contiguous(),
                     edge_attr=torch.tensor(edge_weights, dtype=torch.float)
                     )
 
-    def _extract_graph(self, pose_results, hoi_results, detected_activities):
+    def _extract_graph(self, pose_results, hoi_results, detected_activities) -> tuple[np.array, list, list]:
         """
         The node features are:
          - is_interacting,                   # Binary: Is there interaction or not
@@ -89,29 +92,28 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
 
         The edges have a higher index if people are close together multiplied by if they are facing each other.
         """
-
-        detections = [(box_tensor, box_id) for box_tensor, box_id, _ in pose_results]
-        centroids_current = np.array([self._calc_centroid(bbox) for bbox, _ in detections])
         # Velocity can be the magnitude of change in position
-        velocities = self._calc_velocities(detections)
-        self._save_velocities(zip(detections, velocities))
+        velocities = self._calc_velocities(pose_results)
+        self._save_velocities(zip(pose_results, velocities))
 
-        average_velocities = self._calc_avg_velocities(detections)
+        average_velocities = self._calc_avg_velocities(pose_results)
         # Direction can be encapsulated as the angle of orientation
         orientations = np.array([self._calculate_orientation(keypoints) for _, _, keypoints in pose_results],
                                 dtype=np.float32)
+
         body_positions = np.array([self._classify_position(keypoints) for _, _, keypoints in pose_results],
                                   dtype=np.float32)
-        activities = np.array([activity_idx for track_id, activity_idx in detected_activities if
-                               self.__contains_by_id(detections, track_id)], dtype=np.float32)
-        object_interactions = np.array([results for track_id, results in hoi_results if
-                                        self.__contains_by_id(detections, track_id)], dtype=np.float32)
 
-        if len(object_interactions) < len(detections):
+        activities = np.array([activity_idx for track_id, activity_idx in detected_activities if
+                               self.__contains_by_id(pose_results, track_id)], dtype=np.float32)
+        if len(activities) < len(pose_results):
+            activities = np.append(activities, [0 for _ in range(len(pose_results) - len(activities))])
+
+        object_interactions = np.array([results for track_id, results in hoi_results if
+                                        self.__contains_by_id(pose_results, track_id)], dtype=np.float32)
+        if len(object_interactions) < len(pose_results):
             object_interactions = np.vstack([object_interactions]
-                                            + [[0, 0, -1] for _ in range(len(detections) - len(object_interactions))])
-        if len(activities) < len(detections):
-            activities = np.append(activities, [0 for _ in range(len(detections) - len(activities))])
+                                            + [[0, 0, -1] for _ in range(len(pose_results) - len(object_interactions))])
 
         features = np.hstack((object_interactions.reshape(object_interactions.shape[0], -1),
                               body_positions.reshape(body_positions.shape[0], -1),
@@ -120,6 +122,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
                               average_velocities.reshape(-1, 1),
                               activities.reshape(-1, 1)))
 
+        centroids_current = np.array([self._calc_centroid(bbox) for bbox, _, _ in pose_results])
         edges = []
         edge_weights = []
         for i in range(len(features)):
@@ -138,7 +141,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
                 edges.append((j, i))  # because the graph is undirected
                 edge_weights.append(edge_weight)
 
-        self.prev_detections = detections
+        self.prev_detections = pose_results
         return features, edges, edge_weights
 
     def __normalize_distance(self, distance: float) -> float:
@@ -146,28 +149,30 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
 
     @staticmethod
     def __contains_by_id(detections, track_id) -> bool:
-        for _, _id in detections:
+        for _, _id, _ in detections:
             id_val = int(track_id.item()) if isinstance(track_id, torch.Tensor) else int(track_id)
             id_cmp_val = int(_id.item()) if isinstance(_id, torch.Tensor) else int(_id)
             if id_cmp_val == id_val:
                 return True
         return False
 
-    def _calc_velocities(self, detections) -> np.array:
+    def _calc_velocities(self, detections) -> np.ndarray:
         if len(self.prev_detections) > 0:
-            if len(detections) > len(self.prev_detections):
-                self.prev_detections.extend([(torch.zeros((4,), dtype=torch.float32), -1)
-                                             for _ in range(len(detections) - len(self.prev_detections))])
+            displacement: list[np.ndarray] = [np.zeros(2, dtype=np.float32)] * len(detections)
+            for i, (bbox, track_id, _) in enumerate(detections):
+                for prev_bbox, prev_tid, _ in self.prev_detections:
+                    id_val = int(track_id.item()) if isinstance(track_id, torch.Tensor) else int(track_id)
+                    prev_id_val = int(prev_tid.item()) if isinstance(prev_tid, torch.Tensor) else int(prev_tid)
+                    if id_val == prev_id_val:
+                        displacement[i] = self._calc_centroid(bbox) - self._calc_centroid(prev_bbox)
+                        break
 
-            displacement = [self._calc_centroid(current_bbox) - self._calc_centroid(prev_bbox)
-                            if current_id == prev_id else np.zeros(2, dtype=np.float32)
-                            for (current_bbox, current_id), (prev_bbox, prev_id) in zip(detections, self.prev_detections)]
             return np.linalg.norm(displacement, axis=1)
         else:
             return np.zeros(len(detections))
 
     def _save_velocities(self, bbox_velocities_tuples):
-        for (_, track_id), velocity in bbox_velocities_tuples:
+        for (_, track_id, _), velocity in bbox_velocities_tuples:
             id_val = int(track_id.item()) if isinstance(track_id, torch.Tensor) else int(track_id)
             if id_val in self.velocities:
                 self.velocities[id_val].append(velocity)
@@ -175,14 +180,14 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
                 self.velocities[id_val] = [velocity]
 
     def _calc_avg_velocities(self, detections) -> np.array:
-        result = np.array([np.average(velocities)
-                           for track_id, velocities in self.velocities.items()
-                           if self.__contains_by_id(detections, track_id)],
-                          dtype=np.float32)
-        if len(result) < len(detections):
-            diff = len(detections) - len(result)
-            result = np.append(result, [0.0 for _ in range(diff)])
-        return result
+        result: list[float] = [0.0] * len(detections)
+        for i, (bbox, track_id, _) in enumerate(detections):
+            for sum_track_id, velocities in self.velocities.items():
+                id_val = int(track_id.item()) if isinstance(track_id, torch.Tensor) else int(track_id)
+                if id_val == sum_track_id:
+                    result[i] = np.average(velocities).__float__()
+                    break
+        return np.array(result, dtype=np.float32)
 
     @staticmethod
     def _calc_centroid(bbox) -> np.ndarray:
