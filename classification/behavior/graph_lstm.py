@@ -59,8 +59,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         embeddings = []
         for data in graph_data_sequences:
             data.to(get_device())
-            graph_embedding = self.gnn(data) if len(data.x) > 0 else torch.tensor(
-                [0.0 for _ in range(self.lstm.input_size)], device=get_device())
+            graph_embedding = self.gnn(data) if len(data.x) >= 2 else torch.empty([1, 17], device=get_device())
             embeddings.append(graph_embedding.unsqueeze(1))  # Add sequence dimension
         embeddings = torch.cat(embeddings, dim=1)  # Shape: (batch_size, sequence_length, features)
 
