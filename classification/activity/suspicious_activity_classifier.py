@@ -12,17 +12,17 @@ class SuspiciousActivityClassifier(Producer, Consumer):
         Producer.__init__(self, broker)
         Consumer.__init__(self, broker, 'activity_detection_results')
 
-        self.whitelist_activities_indices = []
+        self.whitelist_activities_indices: set[int] = set()
         if 'ACTIVITY_WHITELIST' in os.environ:
             env_whitelist = os.environ['ACTIVITY_WHITELIST']
             for env_line in env_whitelist.split(','):
                 parsed = self.__parse_env_line(env_line)
                 if isinstance(parsed, int):
-                    self.whitelist_activities_indices.append(parsed)
+                    self.whitelist_activities_indices.add(parsed)
                 else:
-                    self.whitelist_activities_indices.extend(parsed)
+                    self.whitelist_activities_indices.update(parsed)
         else:
-            self.whitelist_activities_indices = [2, 8]  # sample activity indices
+            self.whitelist_activities_indices = {2, 8}  # sample activity indices
 
     def get_name(self) -> str:
         return 'suspicious-activity-classifier-app'
@@ -36,12 +36,12 @@ class SuspiciousActivityClassifier(Producer, Consumer):
         self.produce_value('classification_results', None)
 
     @staticmethod
-    def __parse_env_line(value: str) -> int | list[int]:
+    def __parse_env_line(value: str) -> int | set[int]:
         if '-' in value:
             bounds = value.split('-')
             if len(bounds) != 2:
                 logging.error(f"Activity whitelist format error: {value}. Skipping value")
-                return []
-            return [i for i in range(int(bounds[0]), int(bounds[1]) + 1)]
+                return set()
+            return {i for i in range(int(bounds[0]), int(bounds[1]) + 1)}
         else:
             return int(value)
