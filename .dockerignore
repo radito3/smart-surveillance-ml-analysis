@@ -1,5 +1,8 @@
 build/
 *.avi
 *.mov
+*.MOV
+*.jpg
+*.pt
 venv/
 .idea/

@@ -5,7 +5,7 @@ ML Analysis pipeline for the Smart Surveillance System
  * Python 3.12
  * NumPy
  * Ultralytics
- * OpenCV
+ * OpenCV Headless
  * PyTorch
  * PyTorch Geometric
 

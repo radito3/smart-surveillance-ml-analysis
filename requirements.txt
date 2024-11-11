@@ -1,6 +1,5 @@
 numpy
 opencv-python-headless
-ultralytics
 torch
 torchvision
 torch_geometric
