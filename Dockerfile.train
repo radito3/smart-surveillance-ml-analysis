@@ -1,7 +1,11 @@
 FROM python:3.12-bookworm
 
 WORKDIR /app
+
 COPY . .
-RUN pip3 install -r requirements.txt -r train-requirements.txt
+
+RUN pip3 install -r requirements.txt -r train-requirements.txt && \
+    pip3 install ultralytics --no-deps && \
+    pip3 install matplotlib PyYAML pandas py-cpuinfo scipy seaborn ultralytics-thop
 
 ENTRYPOINT ["./train.sh"]
