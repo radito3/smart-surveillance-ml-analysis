@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
 from analysis.human_object_interaction.interaction import HumanObjectInteractionAnalyzer
@@ -17,6 +18,7 @@ class TopologyBuilder:
     @classmethod
     def build_topology_for(cls, mode: str, notification_webhook_url: str) -> MessageBroker:
         broker = MessageBroker()
+        logging.debug(f"Creating streams topology for analysis mode: {mode}")
         match mode:
             case "behaviour":
                 object_detector = ObjectDetector(broker)
@@ -31,6 +33,7 @@ class TopologyBuilder:
                 topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
                           'activity_detection_results', 'hoi_results', 'classification_results']
                 for topic in topics:
+                    logging.debug(f"Creating topic {topic}")
                     broker.create_topic(topic)
 
                 broker.add_subscriber_for('video_source', object_detector)
@@ -54,6 +57,7 @@ class TopologyBuilder:
                 topics = ['video_source', 'video_dimensions', 'pose_detection_results', 'activity_detection_results',
                           'classification_results']
                 for topic in topics:
+                    logging.debug(f"Creating topic {topic}")
                     broker.create_topic(topic)
 
                 broker.add_subscriber_for('video_source', pose_detector)
@@ -70,11 +74,14 @@ class TopologyBuilder:
 
                 topics = ['video_source', 'video_dimensions', 'pose_detection_results', 'classification_results']
                 for topic in topics:
+                    logging.debug(f"Creating topic {topic}")
                     broker.create_topic(topic)
 
                 broker.add_subscriber_for('video_source', pose_detector)
                 broker.add_subscriber_for('pose_detection_results', classifier)
                 broker.add_subscriber_for('classification_results', sink)
+            case _:
+                raise ValueError(f"Unsupported analysis mode: {mode}")
         return broker
 
     @classmethod

@@ -21,10 +21,9 @@ def setup_logger():
 def main(argv: list[str]):
     video_url, analysis_mode, notification_webhook = argv
 
-    broker = TopologyBuilder.build_topology_for(analysis_mode, notification_webhook)
-
-    source = VideoSourceProducer(broker, video_url)
     try:
+        broker = TopologyBuilder.build_topology_for(analysis_mode, notification_webhook)
+        source = VideoSourceProducer(broker, video_url)
         source.init()
     except Exception as e:
         logging.error(e)
