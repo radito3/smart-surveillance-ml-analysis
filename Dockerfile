@@ -4,6 +4,10 @@ WORKDIR /app
 
 COPY . .
 
+RUN apt-get update && \
+    apt-get install -y ffmpeg && \
+    apt-get clean
+
 # this workaround is done because ultralytics (from which YOLO is from)
 # has opencv as a direct dependency and we need opencv-headless instead
 RUN pip3 install -r requirements.txt && \
