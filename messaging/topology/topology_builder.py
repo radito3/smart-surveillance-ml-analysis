@@ -8,8 +8,8 @@ from classification.people_presence.simple_presence_classifier import SimplePres
 from analysis.object_detection.object_detector import ObjectDetector
 from analysis.pose_detection.pose_detector import PoseDetector
 from messaging.message_broker import MessageBroker
-from messaging.sink.binary_result_consumer import BinaryResultConsumer
-from messaging.sink.probability_result_consumer import ProbabilityResultConsumer
+from messaging.sink.binary_result_sink import BinaryResultSink
+from messaging.sink.probability_result_sink import ProbabilityResultSink
 from messaging.sink.training_sink import TrainingSink
 
 
@@ -28,7 +28,7 @@ class TopologyBuilder:
 
                 classifier = CompositeBehaviouralClassifier(broker, 12, 48, 12)
 
-                sink = ProbabilityResultConsumer(broker, notification_webhook_url)
+                sink = ProbabilityResultSink(broker, notification_webhook_url)
 
                 topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
                           'activity_detection_results', 'hoi_results', 'classification_results']
@@ -52,7 +52,7 @@ class TopologyBuilder:
 
                 classifier = SuspiciousActivityClassifier(broker)
 
-                sink = BinaryResultConsumer(broker, notification_webhook_url)
+                sink = BinaryResultSink(broker, notification_webhook_url)
 
                 topics = ['video_source', 'video_dimensions', 'pose_detection_results', 'activity_detection_results',
                           'classification_results']
@@ -70,7 +70,7 @@ class TopologyBuilder:
 
                 classifier = SimplePresenceClassifier(broker)
 
-                sink = BinaryResultConsumer(broker, notification_webhook_url)
+                sink = BinaryResultSink(broker, notification_webhook_url)
 
                 topics = ['video_source', 'video_dimensions', 'pose_detection_results', 'classification_results']
                 for topic in topics:

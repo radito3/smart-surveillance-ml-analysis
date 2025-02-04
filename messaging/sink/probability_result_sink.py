@@ -6,7 +6,7 @@ from messaging.consumer import Consumer
 from notifications.notification_delegate import send_notification
 
 
-class ProbabilityResultConsumer(Consumer):
+class ProbabilityResultSink(Consumer):
 
     def __init__(self, broker: Broker, notification_webhook: str):
         super().__init__(broker, 'classification_results')
