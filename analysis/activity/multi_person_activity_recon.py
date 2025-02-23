@@ -1,6 +1,7 @@
 from datetime import timedelta
 import concurrent.futures as cf
 from math import floor, ceil
+from collections import defaultdict
 import cv2
 
 from messaging.aggregate_consumer import AggregateConsumer
@@ -60,11 +61,10 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
         return [(track_id, future.result()) for track_id, future in futures]
 
     def aggregate_people_subregions_across_frames(self, window: list[list[tuple[any, cv2.typing.MatLike]]]) -> dict[any, list[cv2.typing.MatLike]]:
-        subregions_across_frames_per_tracking_id: dict[any, list[cv2.typing.MatLike]] = {}
+        subregions_across_frames = defaultdict(list)
+
         for people_sub_regions in window:
             for track_id, sub_region in people_sub_regions:
-                if track_id.item() in subregions_across_frames_per_tracking_id:
-                    subregions_across_frames_per_tracking_id[track_id.item()].append(sub_region)
-                else:
-                    subregions_across_frames_per_tracking_id[track_id.item()] = [sub_region]
-        return subregions_across_frames_per_tracking_id
+                subregions_across_frames[track_id.item()].append(sub_region)
+
+        return subregions_across_frames
