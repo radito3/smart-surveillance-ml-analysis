@@ -18,6 +18,7 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
         self._buffer: list[list[tuple[any, cv2.typing.MatLike]]] = []
         self._window_step: int = window_step
         self._activity_analyzer = None
+        self.executor = cf.ThreadPoolExecutor(max_workers=10, thread_name_prefix='activity-analyzer-worker')
 
     def get_name(self) -> str:
         return 'activity-recognition-app'
@@ -37,6 +38,7 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
 
     def cleanup(self):
         self.produce_value('activity_detection_results', None)
+        self.executor.shutdown(wait=False, cancel_futures=True)
 
     def extract_sub_regions_for_people(self, frame: cv2.typing.MatLike, yolo_results) -> list[tuple[any, cv2.typing.MatLike]]:
         return [(track_id, self._extract_frame_subregion(frame, bbox)) for bbox, track_id, _ in yolo_results]
@@ -57,12 +59,9 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
                 else:
                     sub_regions_windows_per_tracking_id[track_id.item()] = [sub_region]
 
-        executor = cf.ThreadPoolExecutor(max_workers=10)
         for track_id, sub_region_window in sub_regions_windows_per_tracking_id.items():
             # use submit instead of map to preserve order of tracking IDs
-            future = executor.submit(self._activity_analyzer.predict_activity, sub_region_window)
+            future = self.executor.submit(self._activity_analyzer.predict_activity, sub_region_window)
             futures.append((track_id, future))
 
-        results = [(track_id, future.result()) for track_id, future in futures]
-        executor.shutdown(wait=False, cancel_futures=True)
-        return results
+        return [(track_id, future.result()) for track_id, future in futures]
