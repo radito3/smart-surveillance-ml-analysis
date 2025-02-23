@@ -50,18 +50,21 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
 
     def analyze_video_window(self, window: list[list[tuple[any, cv2.typing.MatLike]]]) -> list[tuple[any, int]]:
         futures = []
+        subregions_across_frames_per_tracking_id = self.aggregate_people_subregions_across_frames(window)
 
-        sub_regions_windows_per_tracking_id = {}
-        for people_sub_regions in window:
-            for track_id, sub_region in people_sub_regions:
-                if track_id.item() in sub_regions_windows_per_tracking_id:
-                    sub_regions_windows_per_tracking_id[track_id.item()].append(sub_region)
-                else:
-                    sub_regions_windows_per_tracking_id[track_id.item()] = [sub_region]
-
-        for track_id, sub_region_window in sub_regions_windows_per_tracking_id.items():
+        for track_id, sub_region_window in subregions_across_frames_per_tracking_id.items():
             # use submit instead of map to preserve order of tracking IDs
             future = self.executor.submit(self._activity_analyzer.predict_activity, sub_region_window)
             futures.append((track_id, future))
 
         return [(track_id, future.result()) for track_id, future in futures]
+
+    def aggregate_people_subregions_across_frames(self, window: list[list[tuple[any, cv2.typing.MatLike]]]) -> dict[any, list[cv2.typing.MatLike]]:
+        subregions_across_frames_per_tracking_id: dict[any, list[cv2.typing.MatLike]] = {}
+        for people_sub_regions in window:
+            for track_id, sub_region in people_sub_regions:
+                if track_id.item() in subregions_across_frames_per_tracking_id:
+                    subregions_across_frames_per_tracking_id[track_id.item()].append(sub_region)
+                else:
+                    subregions_across_frames_per_tracking_id[track_id.item()] = [sub_region]
+        return subregions_across_frames_per_tracking_id
