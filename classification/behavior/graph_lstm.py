@@ -308,7 +308,7 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
     def get_name(self) -> str:
         return 'graph-lstm-classifier-app'
 
-    def consume_message(self, message: dict[str, any]):
+    def process_message(self, message: dict[str, any]):
         pose_buffer = message['pose_detection_results']
         hoi_buffer = message['hoi_results']
         detected_activities = message['activity_detection_results']
@@ -341,5 +341,5 @@ class OneShotConsumer(Consumer):
     def get_name(self) -> str:
         return 'one-shot-consumer'
 
-    def consume_message(self, message: tuple[float, float]):
+    def process_message(self, message: tuple[float, float]):
         self.stream_app.classifier.set_dimensions(message)

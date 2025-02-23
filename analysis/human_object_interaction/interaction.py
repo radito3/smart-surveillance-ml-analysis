@@ -16,7 +16,7 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
     def get_name(self) -> str:
         return 'human-object-interaction-app'
 
-    def consume_message(self, message: dict[str, any]):
+    def process_message(self, message: dict[str, any]):
         objects = message['object_detection_results']
         pose_results = message['pose_detection_results']
 

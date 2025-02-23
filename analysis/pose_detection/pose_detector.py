@@ -30,7 +30,7 @@ class PoseDetector(Producer, Consumer):
         self.model = YOLO('yolo11m-pose.pt').to(get_device())
         self.model.compile() if torch.cuda.is_available() else None
 
-    def consume_message(self, frame: cv2.typing.MatLike):
+    def process_message(self, frame: cv2.typing.MatLike):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         with torch.no_grad():
             # we need `track` instead of `predict` because we need to keep track of people between frames

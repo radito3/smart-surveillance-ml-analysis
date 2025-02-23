@@ -15,6 +15,6 @@ class TrainingSink(Consumer):
     def get_predicted_mean(self) -> float:
         return np.mean(self.predictions).__float__()
 
-    def consume_message(self, probability: float):
+    def process_message(self, probability: float):
         if probability != 0:
             self.predictions.append(probability)

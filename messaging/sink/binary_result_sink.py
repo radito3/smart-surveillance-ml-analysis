@@ -12,6 +12,6 @@ class BinaryResultSink(Consumer):
     def get_name(self) -> str:
         return 'classification-result-consumer'
 
-    def consume_message(self, result: bool):
+    def process_message(self, result: bool):
         if result:
             send_notification(self.notification_webhook_url)

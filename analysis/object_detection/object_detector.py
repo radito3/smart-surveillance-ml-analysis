@@ -32,7 +32,7 @@ class ObjectDetector(Producer, Consumer):
         self.model = YOLO('yolo11m.pt').to(get_device())
         self.model.compile() if torch.cuda.is_available() else None
 
-    def consume_message(self, frame: cv2.typing.MatLike):
+    def process_message(self, frame: cv2.typing.MatLike):
         with torch.no_grad():
             results = self.model(frame, verbose=False)[0]
         boxes = results.boxes.cpu()

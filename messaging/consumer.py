@@ -26,11 +26,11 @@ class Consumer:
 
     def run(self):
         for msg in self:
-            self.consume_message(msg)
+            self.process_message(msg)
         self.cleanup()
 
     def cleanup(self):
         pass
 
-    def consume_message(self, message: any):
+    def process_message(self, message: any):
         logging.warning('Consume called on a base consumer. Skipping message...')

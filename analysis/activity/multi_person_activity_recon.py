@@ -26,7 +26,7 @@ class MultiPersonActivityRecognitionAnalyzer(Producer, AggregateConsumer):
     def init(self):
         self._activity_analyzer = ActivityRecognitionAnalyzer()
 
-    def consume_message(self, message: dict[str, any]):
+    def process_message(self, message: dict[str, any]):
         if len(self._buffer) >= self._num_frames:
             result = self.analyze_video_window(self._buffer)
             self.produce_value('activity_detection_results', result)

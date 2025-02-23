@@ -27,7 +27,7 @@ class SuspiciousActivityClassifier(Producer, Consumer):
     def get_name(self) -> str:
         return 'suspicious-activity-classifier-app'
 
-    def consume_message(self, people_activities: list[int]):
+    def process_message(self, people_activities: list[int]):
         for activity_idx in people_activities:
             if activity_idx not in self.whitelist_activities_indices:
                 self.produce_value('classification_results', True)

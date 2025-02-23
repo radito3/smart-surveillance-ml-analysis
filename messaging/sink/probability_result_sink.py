@@ -21,6 +21,6 @@ class ProbabilityResultSink(Consumer):
     def get_name(self) -> str:
         return 'classification-result-consumer'
 
-    def consume_message(self, confidence: float):
+    def process_message(self, confidence: float):
         if confidence > self.probability_threshold:  # experiment with threshold values
             send_notification(self.notification_webhook_url)
