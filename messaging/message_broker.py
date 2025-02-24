@@ -25,8 +25,8 @@ class MessageBroker(Broker):
         if topic not in self.topics_mappings:
             raise ValueError(f"Topic {topic} does not exist")
 
-        mapping = self.topics_mappings[topic]
-        if not mapping[0].put_with_max_reads(message, mapping[1]):
+        topic_queue, num_consumers = self.topics_mappings[topic]
+        if not topic_queue.put_with_max_reads(message, num_consumers):
             # since all but the source producer are also consumers, we use StopIteration to halt them
             raise StopIteration
 
@@ -40,8 +40,8 @@ class MessageBroker(Broker):
             raise ValueError(f"Topic {topic} does not exist")
 
         with self.topics_lock:
-            tmp = self.topics_mappings[topic]
-            self.topics_mappings[topic] = (tmp[0], tmp[1] + 1)
+            topic_queue, num_consumers = self.topics_mappings[topic]
+            self.topics_mappings[topic] = (topic_queue, num_consumers + 1)
         if consumer.get_name() not in self.consumer_threads:
             self.consumer_threads[consumer.get_name()] = Thread(name=consumer.get_name() + '-thread',
                                                                 target=self.__consumer_thread_wrapper,
@@ -60,9 +60,9 @@ class MessageBroker(Broker):
             self.interrupt()
 
         with self.topics_lock:
-            if self.topics_mappings[topic][1] > 0:
-                tmp = self.topics_mappings[topic]
-                self.topics_mappings[topic] = (tmp[0], tmp[1] - 1)
+            topic_queue, num_consumers = self.topics_mappings[topic]
+            if num_consumers > 0:
+                self.topics_mappings[topic] = (topic_queue, num_consumers - 1)
 
     def start_streams(self):
         [thread.start() for thread in self.consumer_threads.values()]
@@ -73,5 +73,5 @@ class MessageBroker(Broker):
     def interrupt(self):
         if not self.interrupted:
             self.interrupted = True
-            for topic in self.topics_mappings.values():
-                topic[0].interrupt()
+            for topic_queue, _ in self.topics_mappings.values():
+                topic_queue.interrupt()
