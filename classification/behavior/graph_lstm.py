@@ -135,9 +135,10 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
                 f_phi = 2 - np.cos(phi)
                 edge_weight = 1 / (norm_distance * f_phi)
 
-                # make a complete (fully-connected) graph
+                # make a symmetric (fully-connected) graph
                 edges.append((i, j))
                 edges.append((j, i))  # because the graph is undirected
+                edge_weights.append(edge_weight)
                 edge_weights.append(edge_weight)
 
         self.prev_detections = pose_results
