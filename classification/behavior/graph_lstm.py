@@ -2,8 +2,8 @@ import os
 
 import numpy as np
 import torch
-import torch.nn as nn
-from torch_geometric.nn import GCNConv, global_mean_pool, global_max_pool, SAGPooling
+from torch.nn import Linear, LSTM
+from torch_geometric.nn import GATConv, SAGPooling, AttentionalAggregation
 from torch_geometric.data import Data
 from math import sqrt
 
@@ -13,24 +13,26 @@ from messaging.consumer import Consumer
 from messaging.producer import Producer
 from util.device import get_device
 
-
-class GraphNetWithSAGPooling(torch.nn.Module):
-    def __init__(self, node_features, hidden_dim, pooling_channels=16, pooling_ratio=0.8, global_pool_type='mean'):
-        super(GraphNetWithSAGPooling, self).__init__()
-        self.conv1 = GCNConv(node_features, pooling_channels)
+class GraphNetWithAttentionPooling(torch.nn.Module):
+    def __init__(self, node_features, hidden_dim, pooling_channels=16, pooling_ratio=0.8, heads=4, node_threshold=30):
+        super(GraphNetWithAttentionPooling, self).__init__()
+        self.node_threshold = node_threshold  # Dynamic pooling threshold
+        self.conv1 = GATConv(node_features, pooling_channels // heads, heads=heads, edge_dim=1, dropout=0.1,
+                             add_self_loops=False)
         # Self-Attention Graph Pooling
         self.filter_pool = SAGPooling(pooling_channels, ratio=pooling_ratio)
-        self.conv2 = GCNConv(pooling_channels, hidden_dim)
-        # Ensures a fixed-size output
-        self.global_pool = global_mean_pool if global_pool_type == 'mean' else global_max_pool
+        self.conv2 = GATConv(pooling_channels, hidden_dim, heads=1, edge_dim=1, dropout=0.1, add_self_loops=False)
+        # Learnable attention mechanism for final pooling
+        self.global_pool = AttentionalAggregation(Linear(hidden_dim, 1))
 
     def forward(self, data):
-        x, edge_index, batch, edge_weight = data.x, data.edge_index, data.batch, data.edge_weight
-        x = torch.relu(self.conv1(x, edge_index, edge_weight))
-        x, edge_index, edge_weight, batch, _, _ = self.filter_pool(x, edge_index, edge_weight, batch)
-        x = torch.relu(self.conv2(x, edge_index, edge_weight))
-        x = self.global_pool(x, batch)  # Enforce a fixed-sized output
-        return x
+        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
+        x = torch.relu(self.conv1(x, edge_index, edge_attr))
+        if x.shape[0] > self.node_threshold:
+            x, edge_index, edge_attr, _, _, _ = self.filter_pool(x, edge_index, edge_attr)
+        x = torch.relu(self.conv2(x, edge_index, edge_attr))
+        index = edge_index.new_zeros(x.size(0))  # shape: (num_nodes, hidden_dim)
+        return self.global_pool(x, index)
 
 
 class GraphBasedLSTMClassifier(torch.nn.Module):
@@ -39,13 +41,15 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
                  hidden_dim: int = 16,
                  pooling_channels: int = 16,
                  pooling_ratio: float = 0.8,
-                 global_pool_type: str = 'mean',
+                 heads: int = 4,
+                 node_threshold: int = 30,
                  lstm_layers: int = 1):
         torch.nn.Module.__init__(self)
-        self.gnn = GraphNetWithSAGPooling(node_features, hidden_dim, pooling_channels, pooling_ratio, global_pool_type)
-        self.lstm = nn.LSTM(hidden_dim, hidden_dim, num_layers=lstm_layers, batch_first=True,
+        self.gnn = GraphNetWithAttentionPooling(node_features, hidden_dim, pooling_channels, pooling_ratio, heads,
+                                                node_threshold)
+        self.lstm = LSTM(hidden_dim, hidden_dim, num_layers=lstm_layers, batch_first=True,
                             dropout=0.2 if lstm_layers > 1 else 0)
-        self.output_layer = nn.Linear(hidden_dim, 1)
+        self.output_layer = Linear(hidden_dim, 1)
 
         self.width, self.height = 640, 640
         self.prev_detections = []
@@ -272,7 +276,8 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
                  hidden_dim: int = 16,
                  pooling_channels: int = 16,
                  pooling_ratio: float = 0.8,
-                 global_pool_type: str = 'mean',
+                 heads: int = 4,
+                 node_threshold: int = 30,
                  lstm_layers: int = 1):
         Producer.__init__(self, broker)
         AggregateConsumer.__init__(self, broker,
@@ -285,7 +290,8 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
         self.hidden_dim = hidden_dim
         self.pooling_channels = pooling_channels
         self.pooling_ratio = pooling_ratio
-        self.global_pool_type = global_pool_type
+        self.heads = heads
+        self.node_threshold = node_threshold
         self.lstm_layers = lstm_layers
 
     def inject_model(self, model: GraphBasedLSTMClassifier):
@@ -295,8 +301,8 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
     def init(self):
         if not self.is_injected:
             self.classifier = GraphBasedLSTMClassifier(self.node_features, self.hidden_dim, self.pooling_channels,
-                                                       self.pooling_ratio, self.global_pool_type, self.lstm_layers).to(
-                get_device())
+                                                       self.pooling_ratio, self.heads, self.node_threshold,
+                                                       self.lstm_layers).to(get_device())
             if 'GRAPH_LSTM_WEIGHTS_PATH' in os.environ:
                 pretrained_weights_path = os.environ['GRAPH_LSTM_WEIGHTS_PATH']
                 if len(pretrained_weights_path) != 0:

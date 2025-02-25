@@ -147,10 +147,10 @@ if __name__ == '__main__':
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
 
     hyperparams = {
-        'hidden_dim': [16, 32, 64],
+        'hidden_dim': [16, 32, 64, 128],
         'pooling_channels': [16, 32, 64],
         'pooling_ratio': [0.8, 0.6],
-        'global_pool_type': ['mean', 'max'],
+        'heads': [4, 8],  # attention heads
         'lstm_layers': [1, 2]
     }
     # TODO: set the hyperparams based on the config
