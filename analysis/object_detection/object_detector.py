@@ -20,7 +20,6 @@ class ObjectDetector(Producer, Consumer):
 
     def __init__(self, broker: Broker):
         Producer.__init__(self, broker)
-        Consumer.__init__(self, broker, 'video_source')
         self.model = None
 
     def get_name(self) -> str:
@@ -38,9 +37,9 @@ class ObjectDetector(Producer, Consumer):
         boxes = results.boxes.cpu()
         if len(boxes.data) != 0:
             # class 0 is 'person'
-            self.produce_value('object_detection_results', [(bbox, cls) for bbox, cls in zip(boxes.xyxy, boxes.cls) if cls != 0])
+            self.publish('object_detection_results', [(bbox, cls) for bbox, cls in zip(boxes.xyxy, boxes.cls) if cls != 0])
         else:
-            self.produce_value('object_detection_results', [])
+            self.publish('object_detection_results', [])
 
     def cleanup(self):
-        self.produce_value('object_detection_results', None)
+        self.publish('object_detection_results', None)

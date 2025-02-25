@@ -10,13 +10,13 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
 
     def __init__(self, broker: Broker):
         Producer.__init__(self, broker)
-        AggregateConsumer.__init__(self, broker, ['object_detection_results', 'pose_detection_results'])
+        AggregateConsumer.__init__(self, ['object_detection_results', 'pose_detection_results'])
         self.interaction_durations: dict[int, int] = {}
 
     def get_name(self) -> str:
         return 'human-object-interaction-app'
 
-    def process_message(self, message: dict[str, any]):
+    def process_aggregated_message(self, message: dict[str, any]):
         objects = message['object_detection_results']
         pose_results = message['pose_detection_results']
 
@@ -41,10 +41,10 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
                 results.append((track_id, [0, 0, -1]))
 
         self.clear_people_no_longer_in_frame(pose_results)
-        self.produce_value('hoi_results', results)
+        self.publish('hoi_results', results)
 
     def cleanup(self):
-        self.produce_value('hoi_results', None)
+        self.publish('hoi_results', None)
 
     def is_object_held(self, person_bbox, object_bbox, hand_keypoints) -> bool:
         iou = self.calculate_iou(person_bbox, object_bbox)

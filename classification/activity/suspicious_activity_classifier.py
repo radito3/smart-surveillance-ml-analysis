@@ -10,7 +10,6 @@ class SuspiciousActivityClassifier(Producer, Consumer):
 
     def __init__(self, broker: Broker):
         Producer.__init__(self, broker)
-        Consumer.__init__(self, broker, 'activity_detection_results')
 
         self.whitelist_activities_indices: set[int] = set()
         if 'ACTIVITY_WHITELIST' in os.environ:
@@ -30,10 +29,10 @@ class SuspiciousActivityClassifier(Producer, Consumer):
     def process_message(self, people_activities: list[int]):
         for activity_idx in people_activities:
             if activity_idx not in self.whitelist_activities_indices:
-                self.produce_value('classification_results', True)
+                self.publish('classification_results', True)
 
     def cleanup(self):
-        self.produce_value('classification_results', None)
+        self.publish('classification_results', None)
 
     @staticmethod
     def __parse_env_line(value: str) -> int | set[int]:

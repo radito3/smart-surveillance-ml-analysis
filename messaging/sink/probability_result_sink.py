@@ -1,15 +1,13 @@
 import os
 import re
 
-from messaging.broker_interface import Broker
 from messaging.consumer import Consumer
 from notifications.notification_delegate import send_notification
 
 
 class ProbabilityResultSink(Consumer):
 
-    def __init__(self, broker: Broker, notification_webhook: str):
-        super().__init__(broker, 'classification_results')
+    def __init__(self, notification_webhook: str):
         self.notification_webhook_url: str = notification_webhook
         if 'SINK_PROBABILITY_THRESHOLD' in os.environ:
             threshold = os.environ['SINK_PROBABILITY_THRESHOLD']

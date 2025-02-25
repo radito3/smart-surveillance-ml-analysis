@@ -1,12 +1,10 @@
 import numpy as np
 
-from messaging.broker_interface import Broker
 from messaging.consumer import Consumer
 
 
 class TrainingSink(Consumer):
-    def __init__(self, broker: Broker):
-        super().__init__(broker, 'classification_results')
+    def __init__(self):
         self.predictions: list[float] = []
 
     def get_name(self) -> str:

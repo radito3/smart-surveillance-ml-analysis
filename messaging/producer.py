@@ -12,5 +12,5 @@ class Producer:
     def get_name(self) -> str:
         return 'base-producer'
 
-    def produce_value(self, topic: str, value: any):
-        self.broker.write_to(topic, value)
+    def publish(self, topic: str, value: any) -> bool:
+        return self.broker.write_to(topic, value)

@@ -20,7 +20,6 @@ class PoseDetector(Producer, Consumer):
 
     def __init__(self, broker: Broker):
         Producer.__init__(self, broker)
-        Consumer.__init__(self, broker, 'video_source')
         self.model = None
 
     def get_name(self) -> str:
@@ -47,9 +46,9 @@ class PoseDetector(Producer, Consumer):
             if ids is None:
                 # a non-existent ID so that no entries match it
                 ids = [torch.tensor(-2.0) for _ in range(len(kpts))]
-            self.produce_value('pose_detection_results', [*zip(bboxes.xyxy, ids, kpts)])
+            self.publish('pose_detection_results', [*zip(bboxes.xyxy, ids, kpts)])
         else:
-            self.produce_value('pose_detection_results', [])
+            self.publish('pose_detection_results', [])
 
     def cleanup(self):
-        self.produce_value('pose_detection_results', None)
+        self.publish('pose_detection_results', None)

@@ -31,18 +31,11 @@ class VideoSourceProducer(Producer):
         width = self.video_capture.get(cv2.CAP_PROP_FRAME_WIDTH)
         height = self.video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
-        self.produce_value('video_dimensions', (width, height))
-        self.produce_value('video_dimensions', None)
+        self.publish('video_dimensions', (width, height))
+        self.publish('video_dimensions', None)
 
         worker = Thread(name=self.get_name() + '-thread', target=self._produce_video_frames, daemon=True)
         worker.start()
-
-    def _safe_write(self, message: any) -> bool:
-        try:
-            self.produce_value('video_source', message)
-            return True
-        except StopIteration:
-            return False
 
     def _produce_video_frames(self):
         # this introduces an upper bound to frame rate
@@ -66,7 +59,7 @@ class VideoSourceProducer(Producer):
                 time.sleep(2)
                 continue
             if not ok and read_attempts == 0:
-                self._safe_write(None)
+                self.publish('video_source', None)
                 break
             read_attempts = 3  # guard only non-transitive failures
 
@@ -74,9 +67,9 @@ class VideoSourceProducer(Producer):
                 prev_timestamp = time.time()
                 # even though we may drop a few frames here and there, that should be acceptable
                 # if the source is running at too much fps, this upper limit safeguards us from overloading the system
-                if not self._safe_write(frame):
+                if not self.publish('video_source', frame):
                     break
 
         # stop on camera disconnect
         self.video_capture.release()
-        self._safe_write(None)
+        self.publish('video_source', None)

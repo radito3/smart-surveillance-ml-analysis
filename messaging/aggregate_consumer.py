@@ -1,33 +1,35 @@
-from messaging.broker_interface import Broker
-from messaging.consumer import Consumer
-from messaging.windowed_consumer import WindowedConsumer
+from collections import defaultdict, namedtuple
 
+from messaging.consumer import Consumer
+
+WindowConfig = namedtuple('WindowConfig', ['window_size', 'window_step'])
 
 class AggregateConsumer(Consumer):
 
-    def __init__(self, broker: Broker, topics: list[str], **kwargs):
-        super().__init__(broker, '-')
-        self.delegates = [self.__create_delegate(broker, topic, **kwargs) for topic in topics]
+    def __init__(self, topics: list[str], **kwargs):
+        self.num_topics = len(topics)
+        self.buffer_configs = {topic: WindowConfig(int(kwargs[topic]), int(kwargs['step']) if 'step' in kwargs else -1)
+                               for topic in topics if topic in kwargs}
+        self.buffers: dict[str, list[any]] = defaultdict(list)
+        self.aggregate_msg: dict[str, any] = {}
 
-    @staticmethod
-    def __create_delegate(broker: Broker, topic: str, **kwargs) -> Consumer:
-        window_size = int(kwargs[topic]) if topic in kwargs else 1
-        if window_size == 1:
-            return Consumer(broker, topic)
-        if 'step' in kwargs:
-            return WindowedConsumer(broker, topic, window_size, int(kwargs['step']))
-        return WindowedConsumer(broker, topic, window_size)
+    def process_message(self, message: any):
+        topic, payload = message
+        if topic in self.buffer_configs:
+            self.buffers[topic].append(payload)
+            # what if the messages from the buffered topic overflow and overwrite the previous buffer value?
+            # one solution is to have a ring buffer (collections.deque) that drops the oldest messages
+            # ideally we don't want to drop messages...
+            if len(self.buffers[topic]) == self.buffer_configs[topic].window_size:
+                buffer_copy = self.buffers[topic].copy()  # we want a snapshot of the list
+                self.aggregate_msg[topic] = buffer_copy
+                self.buffers[topic] = self.buffers[topic][self.buffer_configs[topic].window_step:]
+        else:
+            self.aggregate_msg[topic] = payload
 
-    def __next__(self) -> any:
-        aggregate_msg: dict[str, any] = {}
-        should_stop: bool = False
-        for delegate in self.delegates:
-            try:
-                message = delegate.__next__()
-                aggregate_msg[delegate.topic] = message
-            except StopIteration:
-                # do not fail-fast in this case, wait for all the downstream consumers
-                should_stop = True
-        if should_stop:
-            raise StopIteration
-        return aggregate_msg
+        if len(self.aggregate_msg) == self.num_topics:
+            self.process_aggregated_message(self.aggregate_msg)
+            self.aggregate_msg.clear()
+
+    def process_aggregated_message(self, message: dict[str, any]):
+        pass

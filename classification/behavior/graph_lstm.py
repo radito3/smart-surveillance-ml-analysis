@@ -1,4 +1,5 @@
 import os
+from threading import Event
 
 import numpy as np
 import torch
@@ -280,11 +281,11 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
                  node_threshold: int = 30,
                  lstm_layers: int = 1):
         Producer.__init__(self, broker)
-        AggregateConsumer.__init__(self, broker,
-                                   ['pose_detection_results', 'hoi_results', 'activity_detection_results'],
+        AggregateConsumer.__init__(self, ['pose_detection_results', 'hoi_results', 'activity_detection_results'],
                                    pose_detection_results=window_size, hoi_results=window_size, step=window_step)
         self.classifier = None
         self.is_injected: bool = False
+        self.is_initialized: Event = Event()
 
         self.node_features = node_features
         self.hidden_dim = hidden_dim
@@ -309,13 +310,12 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
                     self.classifier.load_state_dict(torch.load(pretrained_weights_path, map_location=get_device()))
             # only on CUDA due to: https://github.com/pytorch/pytorch/issues/125254
             self.classifier.compile() if torch.cuda.is_available() else None
-        temp_consumer = OneShotConsumer(self.broker, 'video_dimensions', self)
-        temp_consumer.run()
+        self.is_initialized.set()
 
     def get_name(self) -> str:
         return 'graph-lstm-classifier-app'
 
-    def process_message(self, message: dict[str, any]):
+    def process_aggregated_message(self, message: dict[str, any]):
         pose_buffer = message['pose_detection_results']
         hoi_buffer = message['hoi_results']
         detected_activities = message['activity_detection_results']
@@ -333,20 +333,20 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
 
         result = torch.flatten(predictions).cpu().item()
         self.classifier.velocities.clear()
-        self.produce_value('classification_results', result)
+        self.publish('classification_results', result)
 
     def cleanup(self):
-        self.produce_value('classification_results', None)
+        self.publish('classification_results', None)
 
 
 class OneShotConsumer(Consumer):
 
-    def __init__(self, broker: Broker, topic: str, stream_app: CompositeBehaviouralClassifier):
-        super().__init__(broker, topic)
+    def __init__(self, stream_app: CompositeBehaviouralClassifier):
         self.stream_app = stream_app
 
     def get_name(self) -> str:
         return 'one-shot-consumer'
 
     def process_message(self, message: tuple[float, float]):
+        self.stream_app.is_initialized.wait()
         self.stream_app.classifier.set_dimensions(message)
