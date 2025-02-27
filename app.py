@@ -2,7 +2,9 @@ import logging
 import os
 import signal
 import sys
+from threading import Thread
 
+from messaging.message_broker import MessageBroker
 from messaging.topology.topology_builder import TopologyBuilder
 from messaging.source.video_source_producer import VideoSourceProducer
 
@@ -19,12 +21,14 @@ def setup_logger():
 
 
 def main(argv: list[str]):
-    video_url, analysis_mode, notification_webhook = argv
+    video_url, analysis_mode, notification_service_url = argv
+    topology_builder = TopologyBuilder()
+    broker = MessageBroker()
 
+    source = VideoSourceProducer(broker, video_url)
+    streams = topology_builder.build_topology_for(analysis_mode, broker, notification_service_url)
     try:
-        broker = TopologyBuilder.build_topology_for(analysis_mode, notification_webhook)
-        source = VideoSourceProducer(broker, video_url)
-        source.init()
+        source.start()
     except Exception as e:
         logging.error(e)
         return
@@ -32,8 +36,9 @@ def main(argv: list[str]):
     signal.signal(signal.SIGINT, lambda signum, frame: broker.interrupt())
     signal.signal(signal.SIGTERM, lambda signum, frame: broker.interrupt())
 
-    broker.start_streams()
-    broker.wait()
+    stream_threads = [Thread(name=stream.name, target=stream.run) for stream in streams]
+    [thread.start() for thread in stream_threads]
+    [thread.join() for thread in stream_threads]
 
 
 if __name__ == '__main__':

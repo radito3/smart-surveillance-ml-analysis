@@ -8,18 +8,16 @@ from torch_geometric.nn import GATConv, SAGPooling, AttentionalAggregation
 from torch_geometric.data import Data
 from math import sqrt
 
-from messaging.aggregate_consumer import AggregateConsumer
-from messaging.broker_interface import Broker
-from messaging.consumer import Consumer
-from messaging.producer import Producer
+from messaging.processor import MessageProcessor
 from util.device import get_device
 
 class GraphNetWithAttentionPooling(torch.nn.Module):
-    def __init__(self, node_features, hidden_dim, pooling_channels=16, pooling_ratio=0.8, heads=4, node_threshold=30):
+    def __init__(self, node_features, hidden_dim,
+                 pooling_channels=16, pooling_ratio=0.8, attention_heads=4, node_threshold=30):
         super(GraphNetWithAttentionPooling, self).__init__()
         self.node_threshold = node_threshold  # Dynamic pooling threshold
-        self.conv1 = GATConv(node_features, pooling_channels // heads, heads=heads, edge_dim=1, dropout=0.1,
-                             add_self_loops=False)
+        self.conv1 = GATConv(node_features, pooling_channels // attention_heads, heads=attention_heads, edge_dim=1,
+                             dropout=0.1, add_self_loops=False)
         # Self-Attention Graph Pooling
         self.filter_pool = SAGPooling(pooling_channels, ratio=pooling_ratio)
         self.conv2 = GATConv(pooling_channels, hidden_dim, heads=1, edge_dim=1, dropout=0.1, add_self_loops=False)
@@ -42,12 +40,12 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
                  hidden_dim: int = 16,
                  pooling_channels: int = 16,
                  pooling_ratio: float = 0.8,
-                 heads: int = 4,
+                 attention_heads: int = 4,
                  node_threshold: int = 30,
                  lstm_layers: int = 1):
         torch.nn.Module.__init__(self)
-        self.gnn = GraphNetWithAttentionPooling(node_features, hidden_dim, pooling_channels, pooling_ratio, heads,
-                                                node_threshold)
+        self.gnn = GraphNetWithAttentionPooling(node_features, hidden_dim, pooling_channels, pooling_ratio,
+                                                attention_heads, node_threshold)
         self.lstm = LSTM(hidden_dim, hidden_dim, num_layers=lstm_layers, batch_first=True,
                             dropout=0.2 if lstm_layers > 1 else 0)
         self.output_layer = Linear(hidden_dim, 1)
@@ -268,21 +266,16 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         return np.arctan2(delta_y, delta_x)
 
 
-class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
+class CompositeBehaviouralClassifier(MessageProcessor):
     def __init__(self,
-                 broker: Broker,
                  node_features: int,
-                 window_size: int,
-                 window_step: int,
                  hidden_dim: int = 16,
                  pooling_channels: int = 16,
                  pooling_ratio: float = 0.8,
-                 heads: int = 4,
+                 attention_heads: int = 4,
                  node_threshold: int = 30,
                  lstm_layers: int = 1):
-        Producer.__init__(self, broker)
-        AggregateConsumer.__init__(self, ['pose_detection_results', 'hoi_results', 'activity_detection_results'],
-                                   pose_detection_results=window_size, hoi_results=window_size, step=window_step)
+        super().__init__()
         self.classifier = None
         self.is_injected: bool = False
         self.is_initialized: Event = Event()
@@ -291,7 +284,7 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
         self.hidden_dim = hidden_dim
         self.pooling_channels = pooling_channels
         self.pooling_ratio = pooling_ratio
-        self.heads = heads
+        self.attention_heads = attention_heads
         self.node_threshold = node_threshold
         self.lstm_layers = lstm_layers
 
@@ -302,7 +295,7 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
     def init(self):
         if not self.is_injected:
             self.classifier = GraphBasedLSTMClassifier(self.node_features, self.hidden_dim, self.pooling_channels,
-                                                       self.pooling_ratio, self.heads, self.node_threshold,
+                                                       self.pooling_ratio, self.attention_heads, self.node_threshold,
                                                        self.lstm_layers).to(get_device())
             if 'GRAPH_LSTM_WEIGHTS_PATH' in os.environ:
                 pretrained_weights_path = os.environ['GRAPH_LSTM_WEIGHTS_PATH']
@@ -312,12 +305,9 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
             self.classifier.compile() if torch.cuda.is_available() else None
         self.is_initialized.set()
 
-    def get_name(self) -> str:
-        return 'graph-lstm-classifier-app'
-
-    def process_aggregated_message(self, message: dict[str, any]):
-        pose_buffer = message['pose_detection_results']
-        hoi_buffer = message['hoi_results']
+    def process(self, message: dict[str, any]):
+        pose_buffer = message['pose_detection_results_batched']
+        hoi_buffer = message['hoi_results_batched']
         detected_activities = message['activity_detection_results']
 
         graph_data_sequences = [
@@ -333,20 +323,15 @@ class CompositeBehaviouralClassifier(Producer, AggregateConsumer):
 
         result = torch.flatten(predictions).cpu().item()
         self.classifier.velocities.clear()
-        self.publish('classification_results', result)
-
-    def cleanup(self):
-        self.publish('classification_results', None)
+        self.next(result)
 
 
-class OneShotConsumer(Consumer):
+class DimensionsSetter(MessageProcessor):
 
     def __init__(self, stream_app: CompositeBehaviouralClassifier):
+        super().__init__()
         self.stream_app = stream_app
 
-    def get_name(self) -> str:
-        return 'one-shot-consumer'
-
-    def process_message(self, message: tuple[float, float]):
+    def process(self, message: tuple[float, float]):
         self.stream_app.is_initialized.wait()
         self.stream_app.classifier.set_dimensions(message)

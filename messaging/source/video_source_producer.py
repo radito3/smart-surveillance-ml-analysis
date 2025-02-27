@@ -5,22 +5,18 @@ from threading import Thread
 
 import cv2
 
-from messaging.broker_interface import Broker
-from messaging.producer import Producer
+from messaging.message_broker import MessageBroker
 
 
-class VideoSourceProducer(Producer):
+class VideoSourceProducer:
 
-    def __init__(self, broker: Broker, video_url: str, with_upper_fps_limit: bool = True):
-        super().__init__(broker)
+    def __init__(self, broker: MessageBroker, video_url: str, with_upper_fps_limit: bool = True):
+        self.broker = broker
         self.video_url: str = video_url
         self.video_capture = None
         self.upper_fps_limit: bool = with_upper_fps_limit
 
-    def get_name(self) -> str:
-        return 'video-source-producer'
-
-    def init(self):
+    def start(self):
         # TCP is the underlying transport because UDP can't pass through NAT (at least, according to MediaMTX)
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
         self.video_capture = cv2.VideoCapture(self.video_url, cv2.CAP_FFMPEG)
@@ -31,10 +27,10 @@ class VideoSourceProducer(Producer):
         width = self.video_capture.get(cv2.CAP_PROP_FRAME_WIDTH)
         height = self.video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
-        self.publish('video_dimensions', (width, height))
-        self.publish('video_dimensions', None)
+        self.broker.write_to('video_dimensions', (width, height))
+        self.broker.write_to('video_dimensions', None)
 
-        worker = Thread(name=self.get_name() + '-thread', target=self._produce_video_frames, daemon=True)
+        worker = Thread(name='video-source-producer-thread', target=self._produce_video_frames, daemon=True)
         worker.start()
 
     def _produce_video_frames(self):
@@ -59,7 +55,7 @@ class VideoSourceProducer(Producer):
                 time.sleep(2)
                 continue
             if not ok and read_attempts == 0:
-                self.publish('video_source', None)
+                self.broker.write_to('video_source', None)
                 break
             read_attempts = 3  # guard only non-transitive failures
 
@@ -67,9 +63,9 @@ class VideoSourceProducer(Producer):
                 prev_timestamp = time.time()
                 # even though we may drop a few frames here and there, that should be acceptable
                 # if the source is running at too much fps, this upper limit safeguards us from overloading the system
-                if not self.publish('video_source', frame):
+                if not self.broker.write_to('video_source', frame):
                     break
 
         # stop on camera disconnect
         self.video_capture.release()
-        self.publish('video_source', None)
+        self.broker.write_to('video_source', None)

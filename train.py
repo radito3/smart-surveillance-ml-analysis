@@ -1,5 +1,6 @@
 import logging
 import sys
+from threading import Thread
 
 import cv2
 import torch
@@ -7,6 +8,7 @@ from torch.utils.data import random_split, DataLoader, Dataset
 from sklearn.metrics import recall_score, f1_score, roc_auc_score
 
 from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
+from messaging.message_broker import MessageBroker
 from messaging.source.video_source_producer import VideoSourceProducer
 from messaging.topology.topology_builder import TopologyBuilder
 from util.device import get_device
@@ -39,17 +41,20 @@ def run_pipeline(video_path: str, model: GraphBasedLSTMClassifier) -> float:
     fps: int = get_video_fps(video_path)
     if fps == -1:
         return -1
-    broker, sink = TopologyBuilder.build_training_topology(fps, model)
+
+    broker = MessageBroker()
+    streams, sink = TopologyBuilder.build_training_topology(broker, fps, model)
     # do not bound the fps to not bottleneck the training time
     source = VideoSourceProducer(broker, video_path, False)
     try:
-        source.init()
+        source.start()
     except Exception as e:
         logging.error(e)
         return -1
 
-    broker.start_streams()
-    broker.wait()
+    stream_threads = [Thread(name=stream.name, target=stream.run) for stream in streams]
+    [thread.start() for thread in stream_threads]
+    [thread.join() for thread in stream_threads]
     return sink.get_predicted_mean()
 
 
@@ -150,7 +155,7 @@ if __name__ == '__main__':
         'hidden_dim': [16, 32, 64, 128],
         'pooling_channels': [16, 32, 64],
         'pooling_ratio': [0.8, 0.6],
-        'heads': [4, 8],  # attention heads
+        'attention_heads': [4, 8],
         'lstm_layers': [1, 2]
     }
     # TODO: set the hyperparams based on the config

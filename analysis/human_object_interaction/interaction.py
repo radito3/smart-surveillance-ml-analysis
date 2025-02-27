@@ -1,22 +1,16 @@
 import numpy as np
 import torch
 
-from messaging.aggregate_consumer import AggregateConsumer
-from messaging.broker_interface import Broker
-from messaging.producer import Producer
+from messaging.processor import MessageProcessor
 
 
-class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
+class HumanObjectInteractionAnalyzer(MessageProcessor):
 
-    def __init__(self, broker: Broker):
-        Producer.__init__(self, broker)
-        AggregateConsumer.__init__(self, ['object_detection_results', 'pose_detection_results'])
+    def __init__(self):
+        super().__init__()
         self.interaction_durations: dict[int, int] = {}
 
-    def get_name(self) -> str:
-        return 'human-object-interaction-app'
-
-    def process_aggregated_message(self, message: dict[str, any]):
+    def process(self, message: dict[str, any]):
         objects = message['object_detection_results']
         pose_results = message['pose_detection_results']
 
@@ -41,10 +35,7 @@ class HumanObjectInteractionAnalyzer(Producer, AggregateConsumer):
                 results.append((track_id, [0, 0, -1]))
 
         self.clear_people_no_longer_in_frame(pose_results)
-        self.publish('hoi_results', results)
-
-    def cleanup(self):
-        self.publish('hoi_results', None)
+        self.next(results)
 
     def is_object_held(self, person_bbox, object_bbox, hand_keypoints) -> bool:
         iou = self.calculate_iou(person_bbox, object_bbox)

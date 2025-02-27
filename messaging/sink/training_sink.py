@@ -1,18 +1,15 @@
 import numpy as np
 
-from messaging.consumer import Consumer
+from messaging.processor import MessageProcessor
 
 
-class TrainingSink(Consumer):
+class TrainingSink(MessageProcessor):
     def __init__(self):
+        super().__init__()
         self.predictions: list[float] = []
 
-    def get_name(self) -> str:
-        return 'training-sink-consumer'
+    def process(self, probability: float):
+        self.predictions.append(probability)
 
     def get_predicted_mean(self) -> float:
         return np.mean(self.predictions).__float__()
-
-    def process_message(self, probability: float):
-        if probability != 0:
-            self.predictions.append(probability)

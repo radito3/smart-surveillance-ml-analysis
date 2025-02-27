@@ -1,16 +1,13 @@
 import logging
 import os
 
-from messaging.broker_interface import Broker
-from messaging.consumer import Consumer
-from messaging.producer import Producer
+from messaging.processor import MessageProcessor
 
 
-class SuspiciousActivityClassifier(Producer, Consumer):
+class SuspiciousActivityClassifier(MessageProcessor):
 
-    def __init__(self, broker: Broker):
-        Producer.__init__(self, broker)
-
+    def __init__(self):
+        super().__init__()
         self.whitelist_activities_indices: set[int] = set()
         if 'ACTIVITY_WHITELIST' in os.environ:
             env_whitelist = os.environ['ACTIVITY_WHITELIST']
@@ -23,16 +20,10 @@ class SuspiciousActivityClassifier(Producer, Consumer):
         else:
             self.whitelist_activities_indices = {2, 8}  # sample activity indices
 
-    def get_name(self) -> str:
-        return 'suspicious-activity-classifier-app'
-
-    def process_message(self, people_activities: list[int]):
+    def process(self, people_activities: list[int]):
         for activity_idx in people_activities:
             if activity_idx not in self.whitelist_activities_indices:
-                self.publish('classification_results', True)
-
-    def cleanup(self):
-        self.publish('classification_results', None)
+                self.next(True)
 
     @staticmethod
     def __parse_env_line(value: str) -> int | set[int]:

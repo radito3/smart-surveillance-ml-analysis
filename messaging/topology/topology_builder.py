@@ -1,133 +1,211 @@
 import logging
+import re
+import os
 from datetime import timedelta
-from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer
+
+from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer, SubRegionExtractor
 from analysis.human_object_interaction.interaction import HumanObjectInteractionAnalyzer
 from classification.activity.suspicious_activity_classifier import SuspiciousActivityClassifier
-from classification.behavior.graph_lstm import CompositeBehaviouralClassifier, GraphBasedLSTMClassifier, OneShotConsumer
-from classification.people_presence.simple_presence_classifier import SimplePresenceClassifier
+from classification.behavior.graph_lstm import CompositeBehaviouralClassifier, GraphBasedLSTMClassifier, DimensionsSetter
 from analysis.object_detection.object_detector import ObjectDetector
 from analysis.pose_detection.pose_detector import PoseDetector
 from messaging.message_broker import MessageBroker
-from messaging.sink.binary_result_sink import BinaryResultSink
-from messaging.sink.probability_result_sink import ProbabilityResultSink
+from messaging.stream import StreamsBuilder, Stream
 from messaging.sink.training_sink import TrainingSink
+from notifications.notification_delegate import send_notification
 
 
 class TopologyBuilder:
 
-    @classmethod
-    def build_topology_for(cls, mode: str, notification_webhook_url: str) -> MessageBroker:
-        broker = MessageBroker()
-        logging.debug(f"Creating streams topology for analysis mode: {mode}")
-
-        # TODO: to account for the architecture change, we would need to create new Processors that:
-        #  - merge entries from 2 or more topics and pass them on to a new '_joined' topic (to handle differing speeds)
-        #  this needs to interleave messages from each topic to prevent messages from overwriting old ones
-        #  - buffering entries based on num messages or time and pass them on to a new '_batched' topic
-        #  ...
-        #  by having these 2, the complex data flows that are required can be achieved
-        #  the current processors are just transformations of the data
-        #  the simpler implementation would be for each stream element to write to its own output topic
-        #  the more complex one would be to mimic the Streams API StreamBuilder which would require callbacks
-
+    def build_topology_for(self, mode: str, broker: MessageBroker, notification_service_url: str):
+        logging.debug(f'Creating streams topology for analysis mode: {mode}')
         match mode:
-            case "behaviour":
-                object_detector = ObjectDetector(broker)
-                pose_detector = PoseDetector(broker)
-                hoi_detector = HumanObjectInteractionAnalyzer(broker)
-                activity_detector = MultiPersonActivityRecognitionAnalyzer(broker, 24, timedelta(seconds=2), 12)
-
-                classifier = CompositeBehaviouralClassifier(broker, 12, 48, 12)
-                dimensions_setter = OneShotConsumer(classifier)
-
-                sink = ProbabilityResultSink(notification_webhook_url)
-
-                topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
-                          'activity_detection_results', 'hoi_results', 'classification_results']
-                for topic in topics:
-                    logging.debug(f"Creating topic {topic}")
-                    broker.create_topic(topic)
-
-                broker.add_subscriber_for('video_source', object_detector)
-                broker.add_subscriber_for('video_source', pose_detector)
-                broker.add_subscriber_for('video_source', activity_detector)
-                broker.add_subscriber_for('video_dimensions', dimensions_setter)
-                broker.add_subscriber_for('pose_detection_results', activity_detector)
-                broker.add_subscriber_for('object_detection_results', hoi_detector)
-                broker.add_subscriber_for('pose_detection_results', hoi_detector)
-                broker.add_subscriber_for('pose_detection_results', classifier)
-                broker.add_subscriber_for('hoi_results', classifier)
-                broker.add_subscriber_for('activity_detection_results', classifier)
-                broker.add_subscriber_for('classification_results', sink)
-            case "activity":
-                pose_detector = PoseDetector(broker)
-                activity_detector = MultiPersonActivityRecognitionAnalyzer(broker, 24, timedelta(seconds=2), 12)
-
-                classifier = SuspiciousActivityClassifier(broker)
-
-                sink = BinaryResultSink(notification_webhook_url)
-
-                topics = ['video_source', 'video_dimensions', 'pose_detection_results', 'activity_detection_results',
-                          'classification_results']
-                for topic in topics:
-                    logging.debug(f"Creating topic {topic}")
-                    broker.create_topic(topic)
-
-                broker.add_subscriber_for('video_source', pose_detector)
-                broker.add_subscriber_for('video_source', activity_detector)
-                broker.add_subscriber_for('pose_detection_results', activity_detector)
-                broker.add_subscriber_for('activity_detection_results', classifier)
-                broker.add_subscriber_for('classification_results', sink)
-            case "presence":
-                pose_detector = PoseDetector(broker)
-
-                classifier = SimplePresenceClassifier(broker)
-
-                sink = BinaryResultSink(notification_webhook_url)
-
-                topics = ['video_source', 'video_dimensions', 'pose_detection_results', 'classification_results']
-                for topic in topics:
-                    logging.debug(f"Creating topic {topic}")
-                    broker.create_topic(topic)
-
-                broker.add_subscriber_for('video_source', pose_detector)
-                broker.add_subscriber_for('pose_detection_results', classifier)
-                broker.add_subscriber_for('classification_results', sink)
+            case 'behaviour':
+                return self.build_behaviour_topology(broker, notification_service_url)
+            case 'activity':
+                return self.build_activity_topology(broker, notification_service_url)
+            case 'presence':
+                return self.build_presence_topology(broker, notification_service_url)
             case _:
-                raise ValueError(f"Unsupported analysis mode: {mode}")
-        return broker
+                raise ValueError(f'Unsupported analysis mode: {mode}')
 
-    @classmethod
-    def build_training_topology(cls, fps: int, model: GraphBasedLSTMClassifier) -> tuple[MessageBroker, TrainingSink]:
+    @staticmethod
+    def build_behaviour_topology(broker: MessageBroker, notification_service_url: str) -> list[Stream]:
+        fps = 24  # might be a parameter?
+        window_duration = timedelta(seconds=2)
+        window_size = fps * window_duration.total_seconds()
+        window_step = fps // 2
+
+        classifier = CompositeBehaviouralClassifier(node_features=12)
+
+        probability_threshold: float = 0.6  # default threshold
+        if 'SINK_PROBABILITY_THRESHOLD' in os.environ:
+            threshold = os.environ['SINK_PROBABILITY_THRESHOLD']
+            if bool(re.match(r'^[01]\.\d*$', threshold)):
+                probability_threshold: float = float(threshold)
+
+        topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
+                  'pose_detection_results_batched', 'activity_detection_results', 'hoi_results',
+                  'hoi_results_batched']
+        for topic in topics:
+            logging.debug(f'Creating topic {topic}')
+            broker.create_topic(topic)
+
+        builder = StreamsBuilder(broker)
+
+        builder.stream('video_source') \
+            .named('pose-detection-app') \
+            .process(PoseDetector()) \
+            .to('pose_detection_results')
+
+        builder.stream('video_source') \
+            .named('object-detection-app') \
+            .process(ObjectDetector()) \
+            .to('object_detection_results')
+
+        builder.stream('video_dimensions') \
+            .named('dimensions-setter-app') \
+            .for_each(DimensionsSetter(classifier).process)
+
+        builder.stream('video_source', 'pose_detection_results') \
+            .named('activity-recognition-app') \
+            .process(SubRegionExtractor()) \
+            .window(size=window_size, step=window_step) \
+            .process(MultiPersonActivityRecognitionAnalyzer()) \
+            .to('activity_detection_results')
+
+        builder.stream('object_detection_results', 'pose_detection_results') \
+            .named('human-object-interaction-app') \
+            .process(HumanObjectInteractionAnalyzer()) \
+            .to('hoi_results')
+
+        builder.stream('pose_detection_results') \
+            .named('pose-detection-results-batcher') \
+            .window(size=window_size, step=window_step) \
+            .to('pose_detection_results_batched')
+
+        builder.stream('hoi_results') \
+            .named('hoi-results-batcher') \
+            .window(size=window_size, step=window_step) \
+            .to('hoi_results_batched')
+
+        builder.stream('pose_detection_results_batched', 'activity_detection_results', 'hoi_results_batched') \
+            .named('graph-lstm-classifier-app') \
+            .process(classifier) \
+            .filter(lambda probability: probability > probability_threshold) \
+            .for_each(lambda msg: send_notification(notification_service_url))
+
+        return builder.build()
+
+    @staticmethod
+    def build_activity_topology(broker: MessageBroker, notification_service_url: str) -> list[Stream]:
+        fps = 24  # might be a parameter?
+        window_duration = timedelta(seconds=2)
+        window_size = fps * window_duration.total_seconds()
+        window_step = fps // 2
+
+        topics = ['video_source', 'video_dimensions', 'pose_detection_results', 'activity_detection_results']
+        for topic in topics:
+            logging.debug(f'Creating topic {topic}')
+            broker.create_topic(topic)
+
+        builder = StreamsBuilder(broker)
+
+        builder.stream('video_source') \
+            .named('pose-detection-app') \
+            .process(PoseDetector()) \
+            .to('pose_detection_results')
+
+        builder.stream('video_source', 'pose_detection_results') \
+            .named('activity-recognition-app') \
+            .process(SubRegionExtractor()) \
+            .window(size=window_size, step=window_step) \
+            .process(MultiPersonActivityRecognitionAnalyzer()) \
+            .to('activity_detection_results')
+
+        builder.stream('activity_detection_results') \
+            .named('suspicious-activity-classifier-app') \
+            .process(SuspiciousActivityClassifier()) \
+            .for_each(lambda msg: send_notification(notification_service_url))
+
+        return builder.build()
+
+    @staticmethod
+    def build_presence_topology(broker: MessageBroker, notification_service_url: str) -> list[Stream]:
+        topics = ['video_source', 'video_dimensions']
+        for topic in topics:
+            logging.debug(f'Creating topic {topic}')
+            broker.create_topic(topic)
+
+        builder = StreamsBuilder(broker)
+
+        builder.stream('video_source') \
+            .named('simple-presence-classification-app') \
+            .process(PoseDetector()) \
+            .filter(lambda results: len(results) > 0) \
+            .for_each(lambda msg: send_notification(notification_service_url))
+
+        return builder.build()
+
+    @staticmethod
+    def build_training_topology(broker: MessageBroker, fps: int, model: GraphBasedLSTMClassifier) -> tuple[list[Stream], TrainingSink]:
         window_size: int = 2 * fps
         window_step: int = fps // 2
 
-        broker = MessageBroker()
-        object_detector = ObjectDetector(broker)
-        pose_detector = PoseDetector(broker)
-        hoi_detector = HumanObjectInteractionAnalyzer(broker)
-        activity_detector = MultiPersonActivityRecognitionAnalyzer(broker, fps, timedelta(seconds=2), window_step)
-
-        classifier = CompositeBehaviouralClassifier(broker, 12, window_size, window_step)
+        classifier = CompositeBehaviouralClassifier(node_features=12)
         classifier.inject_model(model)
-        dimensions_setter = OneShotConsumer(classifier)
 
         sink = TrainingSink()
 
         topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
-                  'activity_detection_results', 'hoi_results', 'classification_results']
+                  'pose_detection_results_batched', 'activity_detection_results', 'hoi_results',
+                  'hoi_results_batched']
         for topic in topics:
+            logging.debug(f'Creating topic {topic}')
             broker.create_topic(topic)
 
-        broker.add_subscriber_for('video_source', object_detector)
-        broker.add_subscriber_for('video_source', pose_detector)
-        broker.add_subscriber_for('video_source', activity_detector)
-        broker.add_subscriber_for('video_dimensions', dimensions_setter)
-        broker.add_subscriber_for('pose_detection_results', activity_detector)
-        broker.add_subscriber_for('object_detection_results', hoi_detector)
-        broker.add_subscriber_for('pose_detection_results', hoi_detector)
-        broker.add_subscriber_for('pose_detection_results', classifier)
-        broker.add_subscriber_for('hoi_results', classifier)
-        broker.add_subscriber_for('activity_detection_results', classifier)
-        broker.add_subscriber_for('classification_results', sink)
-        return broker, sink
+        builder = StreamsBuilder(broker)
+
+        builder.stream('video_source') \
+            .named('pose-detection-app') \
+            .process(PoseDetector()) \
+            .to('pose_detection_results')
+
+        builder.stream('video_source') \
+            .named('object-detection-app') \
+            .process(ObjectDetector()) \
+            .to('object_detection_results')
+
+        builder.stream('video_dimensions') \
+            .named('dimensions-setter-app') \
+            .for_each(DimensionsSetter(classifier).process)
+
+        builder.stream('video_source', 'pose_detection_results') \
+            .named('activity-recognition-app') \
+            .process(SubRegionExtractor()) \
+            .window(size=window_size, step=window_step) \
+            .process(MultiPersonActivityRecognitionAnalyzer()) \
+            .to('activity_detection_results')
+
+        builder.stream('object_detection_results', 'pose_detection_results') \
+            .named('human-object-interaction-app') \
+            .process(HumanObjectInteractionAnalyzer()) \
+            .to('hoi_results')
+
+        builder.stream('pose_detection_results') \
+            .named('pose-detection-results-batcher') \
+            .window(size=window_size, step=window_step) \
+            .to('pose_detection_results_batched')
+
+        builder.stream('hoi_results') \
+            .named('hoi-results-batcher') \
+            .window(size=window_size, step=window_step) \
+            .to('hoi_results_batched')
+
+        builder.stream('pose_detection_results_batched', 'activity_detection_results', 'hoi_results_batched') \
+            .named('graph-lstm-classifier-app') \
+            .process(classifier) \
+            .filter(lambda probability: probability != 0) \
+            .for_each(sink.process)
+
+        return builder.build(), sink
