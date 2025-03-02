@@ -4,7 +4,7 @@ from threading import Event
 from typing import Self, Callable
 
 from messaging.message_broker import MessageBroker
-from messaging.processor import MessageProcessor, BatchingProcessor, FilteringProcessor
+from messaging.processor import MessageProcessor, BatchingProcessor, FilteringProcessor, CyclicBarrierFilter
 
 
 class Stream:
@@ -79,6 +79,10 @@ class StreamsBuilder:
 
     def window(self, size, step=-1) -> Self:
         self.current_config.pipeline.append(BatchingProcessor(size, step))
+        return self
+
+    def barrier(self, threshold: int, predicate: Callable[[any], bool]) -> Self:
+        self.current_config.pipeline.append(CyclicBarrierFilter(threshold, predicate))
         return self
 
     def filter(self, predicate: Callable[[any], bool]) -> Self:

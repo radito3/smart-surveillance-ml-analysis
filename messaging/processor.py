@@ -64,3 +64,21 @@ class FilteringProcessor(MessageProcessor):
     def process(self, message: any):
         if self.predicate(message):
             self.next(message)
+
+
+class CyclicBarrierFilter(FilteringProcessor):
+
+    def __init__(self, threshold: int, predicate: Callable[[any], bool]):
+        super().__init__(predicate)
+        self.threshold: int = threshold
+        self.num_consecutive_messages: int = 0
+
+    def process(self, message: any):
+        if self.predicate(message):
+            if self.num_consecutive_messages + 1 == self.threshold:
+                self.num_consecutive_messages = 0
+                self.next(message)
+            else:
+                self.num_consecutive_messages += 1
+        else:
+            self.num_consecutive_messages = 0

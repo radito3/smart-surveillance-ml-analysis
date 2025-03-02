@@ -142,7 +142,7 @@ class TopologyBuilder:
         builder.stream('video_source') \
             .named('simple-presence-classification-app') \
             .process(PoseDetector()) \
-            .filter(lambda results: len(results) > 0) \
+            .barrier(3, lambda results: len(results) > 0) \
             .for_each(lambda msg: send_notification(notification_service_url))
 
         return builder.build()
