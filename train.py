@@ -138,6 +138,10 @@ if __name__ == '__main__':
     config = sys.argv[2]
 
     # TODO: load both the criminal activity videos and normal surveillance videos
+    #  https://paperswithcode.com/dataset/ucf-crime
+    #  https://roc-ng.github.io/XD-Violence/
+    #  https://github.com/AlexanderMelde/SPHAR-Dataset
+    #  for normal videos, check a public YouTube dataset?
     dataset = VideoDataset([], [])
 
     train_size = int(0.7 * len(dataset))  # 70% for training
