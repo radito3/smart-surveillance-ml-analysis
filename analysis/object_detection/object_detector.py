@@ -30,6 +30,7 @@ class ObjectDetector(MessageProcessor):
         with torch.no_grad():
             results = self.model(frame, verbose=False)[0]
         boxes = results.boxes.cpu()
-        # class 0 is 'person'
-        output = [] if len(boxes.data) == 0 else [(bbox, cls) for bbox, cls in zip(boxes.xyxy, boxes.cls) if cls != 0]
+        # filter out class 0 ('person')
+        # divide by the total number of classes from the COCO dataset (80) to normalize the value within the range [0, 1]
+        output = [] if len(boxes.data) == 0 else [(bbox, cls / 79) for bbox, cls in zip(boxes.xyxy, boxes.cls) if cls != 0]
         self.next(output)

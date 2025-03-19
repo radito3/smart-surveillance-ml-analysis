@@ -25,7 +25,6 @@ class PoseDetector(MessageProcessor):
         self.model.compile() if torch.cuda.is_available() else None
 
     def process(self, frame: cv2.typing.MatLike):
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         with torch.no_grad():
             # we need `track` instead of `predict` because we need to keep track of people between frames
             # persist=True to preserve tracker IDs between calls
