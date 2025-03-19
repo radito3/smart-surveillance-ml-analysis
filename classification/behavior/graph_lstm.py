@@ -4,7 +4,7 @@ from threading import Event
 import numpy as np
 import torch
 from torch.nn import Linear, LSTM
-from torch_geometric.nn import GATConv, SAGPooling, AttentionalAggregation
+from torch_geometric.nn import GATConv, SAGPooling, AttentionalAggregation, MaxAggregation
 from torch_geometric.data import Data
 from math import sqrt
 
@@ -18,11 +18,10 @@ class GraphNetWithAttentionPooling(torch.nn.Module):
         self.node_threshold = node_threshold  # Dynamic pooling threshold
         self.conv1 = GATConv(node_features, pooling_channels // attention_heads, heads=attention_heads, edge_dim=1,
                              dropout=0.1, add_self_loops=False)
-        # Self-Attention Graph Pooling
-        self.filter_pool = SAGPooling(pooling_channels, ratio=pooling_ratio)
+        self.filter_pool = SAGPooling(pooling_channels, ratio=pooling_ratio)  # Self-Attention Graph Pooling
         self.conv2 = GATConv(pooling_channels, hidden_dim, heads=1, edge_dim=1, dropout=0.1, add_self_loops=False)
-        # Learnable attention mechanism for final pooling
-        self.global_pool = AttentionalAggregation(Linear(hidden_dim, 1))
+        self.attention_pool = AttentionalAggregation(Linear(hidden_dim, 1))
+        self.max_pool = MaxAggregation()  # for catching outliers
 
     def forward(self, data):
         x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
@@ -31,7 +30,10 @@ class GraphNetWithAttentionPooling(torch.nn.Module):
             x, edge_index, edge_attr, _, _, _ = self.filter_pool(x, edge_index, edge_attr)
         x = torch.relu(self.conv2(x, edge_index, edge_attr))
         index = edge_index.new_zeros(x.size(0))  # shape: (num_nodes, hidden_dim)
-        return self.global_pool(x, index)
+        attention_scored = self.attention_pool(x, index)
+        max_x = self.max_pool(x, index)
+        # Combine the attention-scored and max values for the graph to give the LSTM more context
+        return torch.cat((attention_scored, max_x), dim=1)
 
 
 class GraphBasedLSTMClassifier(torch.nn.Module):
@@ -46,9 +48,10 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         torch.nn.Module.__init__(self)
         self.gnn = GraphNetWithAttentionPooling(node_features, hidden_dim, pooling_channels, pooling_ratio,
                                                 attention_heads, node_threshold)
-        self.lstm = LSTM(hidden_dim, hidden_dim, num_layers=lstm_layers, batch_first=True,
-                            dropout=0.2 if lstm_layers > 1 else 0)
-        self.output_layer = Linear(hidden_dim, 1)
+        # double the input size because we are concatenating the attention and max pooling results
+        self.lstm = LSTM(hidden_dim * 2, hidden_dim, num_layers=lstm_layers, batch_first=True,
+                         bidirectional=True, dropout=0.2 if lstm_layers > 1 else 0)
+        self.output_layer = Linear(hidden_dim * 2, 1)  # double because of the BiLSTM
 
         self.width, self.height = 640, 640
         self.prev_detections = []
@@ -79,6 +82,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
                     edge_attr=torch.tensor(edge_weights, dtype=torch.float)
                     )
 
+    # TODO: try to move all operations to the GPU -> convert any NumPy methods and arrays to PyTorch equivalents
     def _extract_graph(self, pose_results, hoi_results, detected_activities):
         """
         The node features are:
@@ -87,21 +91,26 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
          - detected_object_class_index       # YOLO object class index (e.g., 0 for person, 39 for bottle, etc.)
          - One-hot encoded body positions:
             [standing, sitting, laying down, crouching, bending over]
-         - body_orientation,                 # Where a person is facing
-         - velocity,                         # Current velocity (based on keypoints)
-         - average_velocity,                 # Average velocity over a sequence of time steps
+         - body_orientation                  # Where a person is facing (as [sin(phi), cos(phi)])
+         - velocity,                         # Current velocity (in bbox centroid displacement between frames)
+         - average_velocity,                 # Average velocity over the sequence of time steps
          - kinetics_400_activity             # Activity from Kinetics 400 dataset (encoded as an index)
 
         The edges have a higher index if people are close together multiplied by if they are facing each other.
         """
         # Velocity can be the magnitude of change in position
         velocities = self._calc_velocities(pose_results)
+        # TODO: scale velocities so they are within [0, 1]
         self._save_velocities(zip(pose_results, velocities))
 
         average_velocities = self._calc_avg_velocities(pose_results)
+        # TODO: scale avg velocities so they are within [0, 1]
         # Direction can be encapsulated as the angle of orientation
         orientations = np.array([self._calculate_orientation(keypoints) for _, _, keypoints in pose_results],
                                 dtype=np.float32)
+        sin_orients = np.sin(orientations)
+        cos_orients = np.cos(orientations)
+        orientations_encoded = np.stack([sin_orients, cos_orients], axis=-1)
 
         body_positions = np.array([self._classify_position(keypoints) for _, _, keypoints in pose_results],
                                   dtype=np.float32)
@@ -116,10 +125,11 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         if len(object_interactions) < len(pose_results):
             object_interactions = np.vstack([object_interactions]
                                             + [[0, 0, -1] for _ in range(len(pose_results) - len(object_interactions))])
+        # TODO: apply scaling to the interation duration so it's within [0, 1]
 
         features = np.hstack((object_interactions.reshape(object_interactions.shape[0], -1),
                               body_positions.reshape(body_positions.shape[0], -1),
-                              orientations.reshape(-1, 1),
+                              orientations_encoded.reshape(orientations_encoded.shape[0], -1),
                               velocities.reshape(-1, 1),
                               average_velocities.reshape(-1, 1),
                               activities.reshape(-1, 1)))
@@ -303,6 +313,7 @@ class CompositeBehaviouralClassifier(MessageProcessor):
                     self.classifier.load_state_dict(torch.load(pretrained_weights_path, map_location=get_device()))
             # only on CUDA due to: https://github.com/pytorch/pytorch/issues/125254
             self.classifier.compile() if torch.cuda.is_available() else None
+            self.classifier.eval()
         self.is_initialized.set()
 
     def process(self, message: dict[str, any]):

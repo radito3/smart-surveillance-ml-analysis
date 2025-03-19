@@ -36,7 +36,7 @@ class TopologyBuilder:
         window_size = fps * window_duration.total_seconds()
         window_step = fps // 2
 
-        classifier = CompositeBehaviouralClassifier(node_features=12)
+        classifier = CompositeBehaviouralClassifier(node_features=13)
 
         probability_threshold: float = 0.6  # default threshold
         if 'SINK_PROBABILITY_THRESHOLD' in os.environ:

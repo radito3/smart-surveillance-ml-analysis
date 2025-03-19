@@ -2,5 +2,5 @@ numpy
 opencv-python-headless
 torch
 torchvision
-torch_geometric
+torch-geometric
 requests
