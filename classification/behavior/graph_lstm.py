@@ -6,7 +6,6 @@ import torch
 from torch.nn import Linear, LSTM
 from torch_geometric.nn import GATConv, SAGPooling, AttentionalAggregation, MaxAggregation
 from torch_geometric.data import Data
-from math import sqrt
 
 from messaging.processor import MessageProcessor
 from util.device import get_device
@@ -54,6 +53,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         self.output_layer = Linear(hidden_dim * 2, 1)  # double because of the BiLSTM
 
         self.width, self.height = 640, 640
+        self.alpha = 2.0  # tunable edge weight parameter
         self.prev_detections = []
         self.velocities = {}
 
@@ -139,14 +139,17 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         edge_weights = []
         for i in range(len(features)):
             for j in range(i + 1, len(features)):
-                """
-                edge weight = 1/(distance / sqrt(width ^ 2 + height ^ 2)) * (2 - cos(|theta1 - theta2| mod 2 * pi))
-                """
+                # Distance term: e^(-alpha * distance / scale)
                 euclidean_distance = np.linalg.norm(centroids_current[i] - centroids_current[j]).__float__()
-                norm_distance = self.__normalize_distance(euclidean_distance)
-                phi = np.abs(orientations[i] - orientations[j]) % (2 * np.pi)
-                f_phi = 2 - np.cos(phi)
-                edge_weight = 1 / (norm_distance * f_phi)
+                scale = torch.sqrt(torch.tensor(self.width ** 2 + self.height ** 2, dtype=torch.float32))
+                normalized_distance = euclidean_distance / scale
+                distance_term = torch.exp(-self.alpha * normalized_distance)
+
+                # Orientation term: 1 + cos(|theta1 - theta2| - pi)
+                angle_diff = np.abs(orientations[i] - orientations[j])
+                orientation_term = 1 + torch.cos(angle_diff - torch.pi)
+
+                edge_weight = distance_term * orientation_term
 
                 # make a symmetric (fully-connected) graph
                 edges.append((i, j))
@@ -156,9 +159,6 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
 
         self.prev_detections = pose_results
         return features, edges, edge_weights
-
-    def __normalize_distance(self, distance: float) -> float:
-        return distance / sqrt(self.width ** 2 + self.height ** 2)
 
     @staticmethod
     def __contains_by_id(detections, track_id) -> bool:
