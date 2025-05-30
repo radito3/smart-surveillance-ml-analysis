@@ -158,7 +158,7 @@ if __name__ == '__main__':
     hyperparams = {
         'hidden_dim': [32, 64, 128],
         'pooling_channels': [32, 64, 128],
-        'pooling_ratio': [0.8, 0.6],  # should be proportional on the crowd size - the larger the crowd, the lower the retention ratio
+        'pooling_ratio': [0.8, 0.6],  # should be inversely-proportional on the crowd size - the larger the crowd, the lower the retention ratio
         'attention_heads': [2, 4],  # number of unique "viewpoints" the attention mechanism has on the data (in parallel)
         'lstm_layers': [1, 2]  # for each layer after 1, it would give the LSTM a more abstract view of the data (leaning towards crowd analysis)
     }

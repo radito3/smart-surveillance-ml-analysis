@@ -65,7 +65,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         embeddings = []
         for data in graph_data_sequences:
             data.to(get_device())
-            graph_embedding = self.gnn(data) if len(data.x) >= 2 else torch.empty([1, 17], device=get_device())
+            graph_embedding = self.gnn(data) if len(data.x) >= 2 else torch.empty([1, self.lstm.input_size], device=get_device())
             embeddings.append(graph_embedding.unsqueeze(1))  # Add sequence dimension
         embeddings = torch.cat(embeddings, dim=1)  # Shape: (batch_size, sequence_length, features)
 
@@ -101,6 +101,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         # Velocity can be the magnitude of change in position
         velocities = self._calc_velocities(pose_results)
         # TODO: scale velocities so they are within [0, 1]
+        #  Standardization or Normalization?
         self._save_velocities(zip(pose_results, velocities))
 
         average_velocities = self._calc_avg_velocities(pose_results)
@@ -108,8 +109,8 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
         # Direction can be encapsulated as the angle of orientation
         orientations = np.array([self._calculate_orientation(keypoints) for _, _, keypoints in pose_results],
                                 dtype=np.float32)
-        sin_orients = np.sin(orientations)
-        cos_orients = np.cos(orientations)
+        sin_orients = torch.sin(torch.from_numpy(orientations))
+        cos_orients = torch.cos(torch.from_numpy(orientations))
         orientations_encoded = np.stack([sin_orients, cos_orients], axis=-1)
 
         body_positions = np.array([self._classify_position(keypoints) for _, _, keypoints in pose_results],
@@ -146,7 +147,7 @@ class GraphBasedLSTMClassifier(torch.nn.Module):
                 distance_term = torch.exp(-self.alpha * normalized_distance)
 
                 # Orientation term: 1 + cos(|theta1 - theta2| - pi)
-                angle_diff = np.abs(orientations[i] - orientations[j])
+                angle_diff = torch.abs(torch.tensor(orientations[i] - orientations[j]))
                 orientation_term = 1 + torch.cos(angle_diff - torch.pi)
 
                 edge_weight = distance_term * orientation_term

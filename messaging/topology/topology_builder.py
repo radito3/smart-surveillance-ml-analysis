@@ -152,7 +152,7 @@ class TopologyBuilder:
         window_size: int = 2 * fps
         window_step: int = fps // 2
 
-        classifier = CompositeBehaviouralClassifier(node_features=12)
+        classifier = CompositeBehaviouralClassifier(node_features=13)
         classifier.inject_model(model)
 
         sink = TrainingSink()
