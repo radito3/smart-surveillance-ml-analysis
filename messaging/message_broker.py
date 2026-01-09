@@ -1,4 +1,4 @@
-from threading import Lock, Event
+from threading import Event
 
 from .topic import Topic
 
@@ -7,42 +7,41 @@ class MessageBroker:
 
     def __init__(self):
         self.topics: dict[str, Topic] = {}
-        self.topics_lock: Lock = Lock()
         self.shutdown: Event = Event()
 
-    def read_from(self, topic: str, consumer_name: str) -> any:
+    def read_from(self, topic: str) -> any:
         if topic not in self.topics:
             raise ValueError(f"Topic {topic} does not exist")
 
-        return self.topics[topic].consume(consumer_name)
+        return self.topics[topic].consume()
 
-    def write_to(self, topic: str, message: any) -> bool:
+    def write_to(self, topic: str, message: any):
         if topic not in self.topics:
             raise ValueError(f"Topic {topic} does not exist")
 
-        return self.topics[topic].publish(message)
+        self.topics[topic].publish(message)
 
     def create_topic(self, topic: str):
-        with self.topics_lock:
-            if topic not in self.topics:
-                self.topics[topic] = Topic(topic)
+        if topic not in self.topics:
+            self.topics[topic] = Topic(topic)
 
-    def subscribe_to(self, topic: str, consumer_name: str):
+    def subscribe_to(self, topic: str):
         if topic not in self.topics:
             raise ValueError(f"Topic {topic} does not exist")
 
-        with self.topics_lock:
-            self.topics[topic].subscribe(consumer_name)
+        self.topics[topic].subscribe()
 
-    def unsubscribe_from(self, topic: str, consumer_name: str):
+    def unsubscribe_from(self, topic: str):
         if topic not in self.topics:
             raise ValueError(f"Topic {topic} does not exist")
 
-        with self.topics_lock:
-            self.topics[topic].unsubscribe(consumer_name)
+        self.topics[topic].unsubscribe()
+
+    def is_running(self) -> bool:
+        return not self.shutdown.is_set()
 
     def interrupt(self):
         if not self.shutdown.is_set():
-            self.shutdown.set()
             for topic in self.topics.values():
                 topic.stop_processing_messages()
+            self.shutdown.set()

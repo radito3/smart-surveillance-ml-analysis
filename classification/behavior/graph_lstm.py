@@ -319,7 +319,7 @@ class CompositeBehaviouralClassifier(MessageProcessor):
 
     def process(self, message: dict[str, any]):
         pose_buffer = message['pose_detection_results_batched']
-        hoi_buffer = message['hoi_results_batched']
+        hoi_buffer = message['hoi_results']
         detected_activities = message['activity_detection_results']
 
         graph_data_sequences = [

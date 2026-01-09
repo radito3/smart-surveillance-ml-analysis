@@ -45,8 +45,7 @@ class TopologyBuilder:
                 probability_threshold: float = float(threshold)
 
         topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
-                  'pose_detection_results_batched', 'activity_detection_results', 'hoi_results',
-                  'hoi_results_batched']
+                  'pose_detection_results_batched', 'activity_detection_results', 'hoi_results']
         for topic in topics:
             logging.debug(f'Creating topic {topic}')
             broker.create_topic(topic)
@@ -67,16 +66,19 @@ class TopologyBuilder:
             .named('dimensions-setter-app') \
             .for_each(DimensionsSetter(classifier).process)
 
-        builder.stream('video_source', 'pose_detection_results') \
+        builder.stream('video_source') \
+            .join('pose_detection_results', lambda frame, poses: {'video_source': frame, 'pose_detection_results': poses}) \
             .named('activity-recognition-app') \
             .process(SubRegionExtractor()) \
             .window(size=window_size, step=window_step) \
             .process(MultiPersonActivityRecognitionAnalyzer()) \
             .to('activity_detection_results')
 
-        builder.stream('object_detection_results', 'pose_detection_results') \
+        builder.stream('object_detection_results') \
+            .join('pose_detection_results', lambda objects, poses: {'object_detection_results': objects, 'pose_detection_results': poses}) \
             .named('human-object-interaction-app') \
             .process(HumanObjectInteractionAnalyzer()) \
+            .window(size=window_size, step=window_step) \
             .to('hoi_results')
 
         builder.stream('pose_detection_results') \
@@ -84,12 +86,9 @@ class TopologyBuilder:
             .window(size=window_size, step=window_step) \
             .to('pose_detection_results_batched')
 
-        builder.stream('hoi_results') \
-            .named('hoi-results-batcher') \
-            .window(size=window_size, step=window_step) \
-            .to('hoi_results_batched')
-
-        builder.stream('pose_detection_results_batched', 'activity_detection_results', 'hoi_results_batched') \
+        builder.stream('pose_detection_results_batched') \
+            .join('activity_detection_results', lambda poses, activity: {'pose_detection_results_batched': poses, 'activity_detection_results': activity}) \
+            .join('hoi_results', lambda other, hoi: {**other, 'hoi_results': hoi}) \
             .named('graph-lstm-classifier-app') \
             .process(classifier) \
             .filter(lambda probability: probability > probability_threshold) \
@@ -116,7 +115,8 @@ class TopologyBuilder:
             .process(PoseDetector()) \
             .to('pose_detection_results')
 
-        builder.stream('video_source', 'pose_detection_results') \
+        builder.stream('video_source') \
+            .join('pose_detection_results', lambda frame, poses: {'video_source': frame, 'pose_detection_results': poses}) \
             .named('activity-recognition-app') \
             .process(SubRegionExtractor()) \
             .window(size=window_size, step=window_step) \
@@ -158,8 +158,7 @@ class TopologyBuilder:
         sink = TrainingSink()
 
         topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
-                  'pose_detection_results_batched', 'activity_detection_results', 'hoi_results',
-                  'hoi_results_batched']
+                  'pose_detection_results_batched', 'activity_detection_results', 'hoi_results']
         for topic in topics:
             logging.debug(f'Creating topic {topic}')
             broker.create_topic(topic)
@@ -180,16 +179,19 @@ class TopologyBuilder:
             .named('dimensions-setter-app') \
             .for_each(DimensionsSetter(classifier).process)
 
-        builder.stream('video_source', 'pose_detection_results') \
+        builder.stream('video_source') \
+            .join('pose_detection_results', lambda frame, poses: {'video_source': frame, 'pose_detection_results': poses}) \
             .named('activity-recognition-app') \
             .process(SubRegionExtractor()) \
             .window(size=window_size, step=window_step) \
             .process(MultiPersonActivityRecognitionAnalyzer()) \
             .to('activity_detection_results')
 
-        builder.stream('object_detection_results', 'pose_detection_results') \
+        builder.stream('object_detection_results') \
+            .join('pose_detection_results', lambda objects, poses: {'object_detection_results': objects, 'pose_detection_results': poses}) \
             .named('human-object-interaction-app') \
             .process(HumanObjectInteractionAnalyzer()) \
+            .window(size=window_size, step=window_step) \
             .to('hoi_results')
 
         builder.stream('pose_detection_results') \
@@ -197,12 +199,9 @@ class TopologyBuilder:
             .window(size=window_size, step=window_step) \
             .to('pose_detection_results_batched')
 
-        builder.stream('hoi_results') \
-            .named('hoi-results-batcher') \
-            .window(size=window_size, step=window_step) \
-            .to('hoi_results_batched')
-
-        builder.stream('pose_detection_results_batched', 'activity_detection_results', 'hoi_results_batched') \
+        builder.stream('pose_detection_results_batched') \
+            .join('activity_detection_results', lambda poses, activity: {'pose_detection_results_batched': poses, 'activity_detection_results': activity}) \
+            .join('hoi_results', lambda other, hoi: {**other, 'hoi_results': hoi}) \
             .named('graph-lstm-classifier-app') \
             .process(classifier) \
             .filter(lambda probability: probability != 0) \

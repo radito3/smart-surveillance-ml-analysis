@@ -1,59 +1,74 @@
-from queue import Queue, Empty, Full
-from threading import Event
+from collections import deque
+from threading import Event, Lock, Condition
 
 class Topic:
 
+    class Record:
+        def __init__(self, payload, subscriber_count):
+            self.payload = payload
+            self.ref_count = subscriber_count
+            self.lock = Lock()
+
+        def decrement(self):
+            with self.lock:
+                self.ref_count -= 1
+                return self.ref_count == 0
+
     def __init__(self, name, queue_size=100):
-        self.subscribers: dict[str, Queue] = {}
         self.name = name
-        self.queue_size = queue_size
+        self.subscribers_num = 0
+        self.records = deque()
+        self.max_num_records = queue_size
+        self.condition = Condition()
         self.shutdown = Event()
 
-    def subscribe(self, subscriber_id: str):
-        if subscriber_id not in self.subscribers:
-            self.subscribers[subscriber_id] = Queue(maxsize=self.queue_size)
+    def subscribe(self):
+        self.subscribers_num += 1
 
-    def unsubscribe(self, subscriber_id: str):
-        if subscriber_id in self.subscribers:
-            del self.subscribers[subscriber_id]
+    def unsubscribe(self):
+        self.subscribers_num -= 1
 
-        if len(self.subscribers) == 0:
-            self.shutdown.set()  # no point wasting resources when there are no downstream processors
-
-    def publish(self, message: any) -> bool:
+    def publish(self, message: any):
         if self.shutdown.is_set():
-            return False
+            return
 
-        for sub, queue in self.subscribers.items():
-            if not self.__publish_to_queue(queue, message):
-                return False
+        with self.condition:
+            # Block until there's space available
+            while len(self.records) >= self.max_num_records:
+                # do not use wait_for(predicate) because the shutdown flag may be set even when the queue is full
+                self.condition.wait()
+                if self.shutdown.is_set():
+                    return
 
-        return not self.shutdown.is_set()
+            self.records.append(self.Record(message, self.subscribers_num))
+            self.condition.notify_all()  # Wake up waiting pollers
 
-    def __publish_to_queue(self, queue: Queue, message: any) -> bool:
-        while not self.shutdown.is_set():
-            try:
-                queue.put(message, timeout=1)
-                return True
-            except Full:
-                continue
-            except KeyboardInterrupt:
-                break
-        return False
+    def consume(self) -> any:
+        if self.shutdown.is_set():
+            return None
 
-    def consume(self, subscriber_id: str) -> any:
-        if subscriber_id in self.subscribers:
-            while not self.shutdown.is_set():
-                try:
-                    return self.subscribers[subscriber_id].get(timeout=1)
-                except Empty:
-                    continue
-                except KeyboardInterrupt:
-                    break
+        with self.condition:
+            # Wait until there's a record available
+            while not self.records:
+                self.condition.wait()
+                if self.shutdown.is_set():
+                    return None
+
+            record = self.records[0]
+            data = record.payload
+
+            if record.decrement():  # Last subscriber to read it
+                self.records.popleft()
+                # Notify publishers that space is now available
+                self.condition.notify_all()
+
+            return data
         return None
 
     def stop_processing_messages(self):
         self.shutdown.set()
+        with self.condition:
+            self.condition.notify_all()
 
     def __repr__(self):
         return f'Topic {self.name}'
