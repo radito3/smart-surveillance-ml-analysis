@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from typing import Self, final
+from .broker import Broker
 
 
 class MessageProcessor:
@@ -82,3 +83,24 @@ class CyclicBarrierFilter(FilteringProcessor):
                 self.num_consecutive_messages += 1
         else:
             self.num_consecutive_messages = 0
+
+
+class StreamJoiner(MessageProcessor):
+    
+    def __init__(self, broker: Broker, joined_topic: str, joiner: Callable[[any, any], any]):
+        self.broker = broker
+        self.joined_topic = joined_topic
+        self.joiner = joiner
+        self.broker.subscribe_to(joined_topic)
+        self.subscribed = True
+        
+    def process(self, message: any):
+        if not self.subscribed:
+            return
+        other_message = self.broker.read_from(self.joined_topic)
+        if other_message is None:
+            self.broker.unsubscribe_from(self.joined_topic)
+            self.subscribed = False
+            return
+        combined = self.joiner(message, other_message)
+        self.next(combined)
