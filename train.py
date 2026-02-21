@@ -7,10 +7,17 @@ import torch
 from torch.utils.data import random_split, DataLoader, Dataset
 from sklearn.metrics import recall_score, f1_score, roc_auc_score
 
+from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer, SubRegionExtractor
+from analysis.human_object_interaction.interaction import HumanObjectInteractionAnalyzer
+from classification.behavior.graph_lstm import CompositeBehaviouralClassifier, GraphBasedLSTMClassifier, DimensionsSetter
+from analysis.object_detection.object_detector import ObjectDetector
+from analysis.pose_detection.pose_detector import PoseDetector
 from classification.behavior.graph_lstm import GraphBasedLSTMClassifier
 from messaging.message_broker import MessageBroker
 from messaging.source.video_source_producer import VideoSourceProducer
-from messaging.topology.topology_builder import TopologyBuilder
+from messaging.topology import Topology, KafkaStreams
+from messaging.streams_builder import StreamsBuilder
+from messaging.sink.training_sink import TrainingSink
 from util.device import get_device
 
 
@@ -28,6 +35,56 @@ class VideoDataset(Dataset):
         return video_path, label
 
 
+def build_training_topology(broker: MessageBroker, fps: int, model: GraphBasedLSTMClassifier) -> Topology:
+    window_size: int = 2 * fps
+    window_step: int = fps // 2
+
+    classifier = CompositeBehaviouralClassifier(node_features=13)
+    classifier.inject_model(model)
+
+    builder = StreamsBuilder(broker)
+
+    builder.stream('video_source') \
+        .named('pose-detection-app') \
+        .process(PoseDetector()) \
+        .to('pose_detection_results')
+
+    builder.stream('video_source') \
+        .named('object-detection-app') \
+        .process(ObjectDetector()) \
+        .to('object_detection_results')
+
+    builder.stream('video_source') \
+        .named('dimensions-setter-app') \
+        .for_each(DimensionsSetter(classifier).process)
+
+    builder.stream('video_source') \
+        .join('pose_detection_results', lambda frame, poses: {'video_source': frame, 'pose_detection_results': poses}) \
+        .named('activity-recognition-app') \
+        .process(SubRegionExtractor()) \
+        .window(size=window_size, step=window_step) \
+        .process(MultiPersonActivityRecognitionAnalyzer()) \
+        .to('activity_detection_results')
+
+    builder.stream('object_detection_results') \
+        .join('pose_detection_results', lambda objects, poses: {'object_detection_results': objects, 'pose_detection_results': poses}) \
+        .named('human-object-interaction-app') \
+        .process(HumanObjectInteractionAnalyzer()) \
+        .window(size=window_size, step=window_step) \
+        .to('hoi_results')
+
+    builder.stream('pose_detection_results') \
+        .window(size=window_size, step=window_step) \
+        .join('activity_detection_results', lambda poses, activity: {'pose_detection_results': poses, 'activity_detection_results': activity}) \
+        .join('hoi_results', lambda other, hoi: {**other, 'hoi_results': hoi}) \
+        .named('graph-lstm-classifier-app') \
+        .process(classifier) \
+        .filter(lambda probability: probability != 0) \
+        .to('output')
+
+    return builder.build()
+
+
 def get_video_fps(video_path: str) -> int:
     video_capture = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
     if not video_capture.isOpened():
@@ -43,18 +100,15 @@ def run_pipeline(video_path: str, model: GraphBasedLSTMClassifier) -> float:
         return -1
 
     broker = MessageBroker()
-    streams, sink = TopologyBuilder.build_training_topology(broker, fps, model)
+    sink = TrainingSink()
+    topology = build_training_topology(broker, fps, model)
     # do not bound the fps to not bottleneck the training time
-    source = VideoSourceProducer(broker, video_path, False)
-    try:
-        source.start()
-    except Exception as e:
-        logging.error(e)
-        return -1
+    topology.add_source('video_source', VideoSourceProducer(broker, video_path, False))
+    topology.add_sink('output', sink)
 
-    stream_threads = [Thread(name=stream.name, target=stream.run) for stream in streams]
-    [thread.start() for thread in stream_threads]
-    [thread.join() for thread in stream_threads]
+    streams_app = KafkaStreams(topology)
+    streams_app.start()
+    streams_app.wait()
     return sink.get_predicted_mean()
 
 

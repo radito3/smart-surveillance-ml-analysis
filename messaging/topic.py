@@ -17,16 +17,19 @@ class Topic:
     def __init__(self, name, queue_size=100):
         self.name = name
         self.subscribers_num = 0
+        self.subscribers_lock = Lock()
         self.records = deque()
         self.max_num_records = queue_size
         self.condition = Condition()
         self.shutdown = Event()
 
     def subscribe(self):
-        self.subscribers_num += 1
+        with self.subscribers_lock:
+            self.subscribers_num += 1
 
     def unsubscribe(self):
-        self.subscribers_num -= 1
+        with self.subscribers_lock:
+            self.subscribers_num -= 1
 
     def publish(self, message: any):
         if self.shutdown.is_set():

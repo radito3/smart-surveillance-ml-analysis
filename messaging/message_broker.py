@@ -1,3 +1,4 @@
+import logging
 from threading import Event
 
 from .topic import Topic
@@ -23,6 +24,7 @@ class MessageBroker:
 
     def create_topic(self, topic: str):
         if topic not in self.topics:
+            logging.debug(f"Creating topic {topic}")
             self.topics[topic] = Topic(topic)
 
     def subscribe_to(self, topic: str):
@@ -42,6 +44,7 @@ class MessageBroker:
 
     def interrupt(self):
         if not self.shutdown.is_set():
+            logging.debug("Stopping broker...")
             for topic in self.topics.values():
                 topic.stop_processing_messages()
             self.shutdown.set()

@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from typing import Self, final
-from .message_broker import MessageBroker
+from messaging.message_broker import MessageBroker
 
 
 class MessageProcessor:

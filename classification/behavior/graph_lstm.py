@@ -3,6 +3,7 @@ from threading import Event
 
 import numpy as np
 import torch
+import cv2
 from torch.nn import Linear, LSTM
 from torch_geometric.nn import GATConv, SAGPooling, AttentionalAggregation, MaxAggregation
 from torch_geometric.data import Data
@@ -343,7 +344,18 @@ class DimensionsSetter(MessageProcessor):
     def __init__(self, stream_app: CompositeBehaviouralClassifier):
         super().__init__()
         self.stream_app = stream_app
+        self.is_set = False
 
-    def process(self, message: tuple[float, float]):
+    def process(self, frame: cv2.typing.MatLike):
+        if self.is_set:
+            return
         self.stream_app.is_initialized.wait()
-        self.stream_app.classifier.set_dimensions(message)
+        if isinstance(frame, np.ndarray):
+            height, width = frame.shape[:2]
+        else:
+            try:
+                height, width = frame.get().shape[:2]
+            except AttributeError:
+                height, width = 0, 0
+        self.stream_app.classifier.set_dimensions((width, height))
+        self.is_set = True
