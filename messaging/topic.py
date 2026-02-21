@@ -1,8 +1,8 @@
 from collections import deque
 from threading import Event, Lock, Condition
 
-class Topic:
 
+class Topic:
     class Record:
         def __init__(self, payload, subscriber_count):
             self.payload = payload
@@ -63,7 +63,6 @@ class Topic:
                 self.condition.notify_all()
 
             return data
-        return None
 
     def stop_processing_messages(self):
         self.shutdown.set()
@@ -71,4 +70,4 @@ class Topic:
             self.condition.notify_all()
 
     def __repr__(self):
-        return f'Topic {self.name}'
+        return f"Topic {self.name}"

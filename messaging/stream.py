@@ -3,13 +3,24 @@ import traceback
 from typing import Self, Callable
 
 from messaging.message_broker import MessageBroker
-from messaging.processor import MessageProcessor, BatchingProcessor, FilteringProcessor, CyclicBarrierFilter
+from messaging.processor import (
+    MessageProcessor,
+    BatchingProcessor,
+    FilteringProcessor,
+    CyclicBarrierFilter,
+    StreamJoiner,
+)
 
 
 class Stream:
-
-    def __init__(self, broker: MessageBroker, name: str, source: str, pipeline_head: MessageProcessor,
-                 output_topic: str | None):
+    def __init__(
+        self,
+        broker: MessageBroker,
+        name: str,
+        source: str,
+        pipeline_head: MessageProcessor,
+        output_topic: str | None,
+    ):
         self.broker = broker
         self.name = name
         self.source = source
@@ -27,7 +38,8 @@ class Stream:
                 self.pipeline_head.process(message)
 
             if self.output_topic is not None:
-                self.broker.write_to(self.output_topic, None)  # notify downstream consumers to gracefully stop
+                # notify downstream consumers to gracefully stop
+                self.broker.write_to(self.output_topic, None)
 
             self.pipeline_head.cleanup_chain()
         except Exception as e:
@@ -47,7 +59,6 @@ class StreamConfig:
 
 
 class StreamsBuilder:
-
     def __init__(self, broker: MessageBroker):
         self.broker = broker
         self.configs: list[StreamConfig] = []
@@ -59,17 +70,7 @@ class StreamsBuilder:
         return self
 
     def join(self, other_topic: str, joiner: Callable[[any, any], any]) -> Self:
-        self.broker.subscribe_to(other_topic)
-
-        class StreamJoiner(MessageProcessor):
-            def process(iself, message: any):
-                other_message = self.broker.read_from(other_topic)
-                if other_message is None:
-                    return
-                combined = joiner(message, other_message)
-                iself.next(combined)
-
-        self.current_config.pipeline.append(StreamJoiner())
+        self.current_config.pipeline.append(StreamJoiner(self.broker, other_topic, joiner))
         return self
 
     def named(self, name: str) -> Self:
@@ -109,9 +110,10 @@ class StreamsBuilder:
         self.current_config = StreamConfig()
 
     def build(self) -> list[Stream]:
-        return [self.__build_single(config) for config in self.configs]
+        return [self.__build_single(config, self.broker) for config in self.configs]
 
-    def __build_single(self, config: StreamConfig) -> Stream:
+    @staticmethod
+    def __build_single(config: StreamConfig, broker: MessageBroker) -> Stream:
         num_stages = len(config.pipeline)
 
         if num_stages > 1:
@@ -123,4 +125,10 @@ class StreamsBuilder:
         else:
             config.pipeline[-1].set_next(MessageProcessor(lambda msg: config.sink(msg)))
 
-        return Stream(self.broker, config.name, config.source_topic, config.pipeline[0], config.output_topic)
+        return Stream(
+            broker,
+            config.name,
+            config.source_topic,
+            config.pipeline[0],
+            config.output_topic,
+        )

@@ -45,7 +45,7 @@ class TopologyBuilder:
                 probability_threshold: float = float(threshold)
 
         topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
-                  'pose_detection_results_batched', 'activity_detection_results', 'hoi_results']
+                  'activity_detection_results', 'hoi_results']
         for topic in topics:
             logging.debug(f'Creating topic {topic}')
             broker.create_topic(topic)
@@ -82,12 +82,8 @@ class TopologyBuilder:
             .to('hoi_results')
 
         builder.stream('pose_detection_results') \
-            .named('pose-detection-results-batcher') \
             .window(size=window_size, step=window_step) \
-            .to('pose_detection_results_batched')
-
-        builder.stream('pose_detection_results_batched') \
-            .join('activity_detection_results', lambda poses, activity: {'pose_detection_results_batched': poses, 'activity_detection_results': activity}) \
+            .join('activity_detection_results', lambda poses, activity: {'pose_detection_results': poses, 'activity_detection_results': activity}) \
             .join('hoi_results', lambda other, hoi: {**other, 'hoi_results': hoi}) \
             .named('graph-lstm-classifier-app') \
             .process(classifier) \
@@ -158,7 +154,7 @@ class TopologyBuilder:
         sink = TrainingSink()
 
         topics = ['video_source', 'video_dimensions', 'object_detection_results', 'pose_detection_results',
-                  'pose_detection_results_batched', 'activity_detection_results', 'hoi_results']
+                  'activity_detection_results', 'hoi_results']
         for topic in topics:
             logging.debug(f'Creating topic {topic}')
             broker.create_topic(topic)
@@ -195,12 +191,8 @@ class TopologyBuilder:
             .to('hoi_results')
 
         builder.stream('pose_detection_results') \
-            .named('pose-detection-results-batcher') \
             .window(size=window_size, step=window_step) \
-            .to('pose_detection_results_batched')
-
-        builder.stream('pose_detection_results_batched') \
-            .join('activity_detection_results', lambda poses, activity: {'pose_detection_results_batched': poses, 'activity_detection_results': activity}) \
+            .join('activity_detection_results', lambda poses, activity: {'pose_detection_results': poses, 'activity_detection_results': activity}) \
             .join('hoi_results', lambda other, hoi: {**other, 'hoi_results': hoi}) \
             .named('graph-lstm-classifier-app') \
             .process(classifier) \

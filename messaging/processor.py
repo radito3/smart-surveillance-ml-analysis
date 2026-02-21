@@ -1,10 +1,9 @@
 from collections.abc import Callable
 from typing import Self, final
-from .broker import Broker
+from .message_broker import MessageBroker
 
 
 class MessageProcessor:
-
     def __init__(self, simple_func: Callable[[any], None] | None = None):
         self.next_processor: Self | None = None
         self.simple_func = simple_func
@@ -42,7 +41,6 @@ class MessageProcessor:
 
 
 class BatchingProcessor(MessageProcessor):
-
     def __init__(self, window_size: int, window_step: int = -1):
         super().__init__()
         self.window_size: int = window_size  # in number of messages
@@ -57,7 +55,6 @@ class BatchingProcessor(MessageProcessor):
 
 
 class FilteringProcessor(MessageProcessor):
-
     def __init__(self, predicate: Callable[[any], bool]):
         super().__init__()
         self.predicate = predicate
@@ -68,7 +65,6 @@ class FilteringProcessor(MessageProcessor):
 
 
 class CyclicBarrierFilter(FilteringProcessor):
-
     def __init__(self, threshold: int, predicate: Callable[[any], bool]):
         super().__init__(predicate)
         self.threshold: int = threshold
@@ -87,13 +83,13 @@ class CyclicBarrierFilter(FilteringProcessor):
 
 class StreamJoiner(MessageProcessor):
     
-    def __init__(self, broker: Broker, joined_topic: str, joiner: Callable[[any, any], any]):
+    def __init__(self, broker: MessageBroker, joined_topic: str, joiner: Callable[[any, any], any]):
         self.broker = broker
         self.joined_topic = joined_topic
         self.joiner = joiner
         self.broker.subscribe_to(joined_topic)
         self.subscribed = True
-        
+
     def process(self, message: any):
         if not self.subscribed:
             return

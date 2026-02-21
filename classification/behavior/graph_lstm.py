@@ -318,7 +318,7 @@ class CompositeBehaviouralClassifier(MessageProcessor):
         self.is_initialized.set()
 
     def process(self, message: dict[str, any]):
-        pose_buffer = message['pose_detection_results_batched']
+        pose_buffer = message['pose_detection_results']
         hoi_buffer = message['hoi_results']
         detected_activities = message['activity_detection_results']
 
