@@ -57,7 +57,7 @@ class StreamsBuilder:
     def through(self, topic: str) -> Self:
         name = self.current_config.name
         self.to(topic)
-        return self.stream(topic).named(name)
+        return self.stream(topic).named(name+"-passthrough")
 
     def to(self, topic: str):
         self.current_config.output_topic = topic

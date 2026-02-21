@@ -115,10 +115,7 @@ def build_activity_topology(broker: MessageBroker) -> Topology:
         .process(SubRegionExtractor()) \
         .window(size=window_size, step=window_step) \
         .process(MultiPersonActivityRecognitionAnalyzer()) \
-        .to('activity_detection_results')
-
-    builder.stream('activity_detection_results') \
-        .named('suspicious-activity-classifier-app') \
+        .through('activity_detection_results') \
         .process(SuspiciousActivityClassifier()) \
         .to('output')
 
