@@ -1,7 +1,7 @@
 import logging
 from threading import Event
 
-from .topic import Topic
+from messaging.topic import Topic
 
 
 class MessageBroker:

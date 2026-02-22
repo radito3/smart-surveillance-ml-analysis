@@ -54,8 +54,7 @@ class VideoSourceProducer(Producer):
                 prev_timestamp = time.time()
                 # even though we may drop a few frames here and there, that should be acceptable
                 # if the source is running at too much fps, this upper limit safeguards us from overloading the system
-                if not self.broker.write_to('video_source', frame):
-                    break
+                self.broker.write_to('video_source', frame)
 
         # stop on camera disconnect
         self.video_capture.release()

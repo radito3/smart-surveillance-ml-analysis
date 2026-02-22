@@ -2,6 +2,7 @@ from typing import Self, Callable
 
 from messaging.message_broker import MessageBroker
 from messaging.stream import Stream
+from messaging.topology import Topology
 from messaging.processor import (
     MessageProcessor,
     BatchingProcessor,
@@ -70,8 +71,8 @@ class StreamsBuilder:
         self.configs.append(self.current_config)
         self.current_config = StreamConfig()
 
-    def build(self) -> list[Stream]:
-        return [self.__build_single(config, self.broker) for config in self.configs]
+    def build(self) -> Topology:
+        return Topology(self.broker, [self.__build_single(config, self.broker) for config in self.configs])
 
     @staticmethod
     def __build_single(config: StreamConfig, broker: MessageBroker) -> Stream:

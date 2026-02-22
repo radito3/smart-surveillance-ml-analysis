@@ -41,7 +41,7 @@ class KafkaStreams:
         self.threads.extend([Thread(name=stream.name, target=stream.run) for stream in self.topology.streams])
 
         for topic, consumer in self.topology.sinks.items():
-            self.threads.append(Thread(name=topic+"-consumer-thread", target=self.__consumer_runner, args=(topic, consumer)))
+            self.threads.append(Thread(name=topic+"-consumer-thread", target=self.__consumer_runner, args=(topic, consumer,)))
 
         for thread in self.threads:
             thread.start()
