@@ -51,8 +51,8 @@ class StreamsBuilder:
         self.current_config.pipeline.append(FilteringProcessor(predicate))
         return self
 
-    def process(self, transform_func: MessageProcessor) -> Self:
-        self.current_config.pipeline.append(transform_func)
+    def process(self, processor: MessageProcessor) -> Self:
+        self.current_config.pipeline.append(processor)
         return self
 
     def through(self, topic: str) -> Self:

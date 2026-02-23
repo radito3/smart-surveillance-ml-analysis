@@ -10,7 +10,7 @@ from messaging.producer import Producer
 
 class VideoSourceProducer(Producer):
     def __init__(self, broker: MessageBroker, video_url: str, with_upper_fps_limit: bool = True):
-        self.broker = broker
+        super().__init__(broker)
         self.video_url: str = video_url
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
         self.video_capture = cv2.VideoCapture(self.video_url, cv2.CAP_FFMPEG)

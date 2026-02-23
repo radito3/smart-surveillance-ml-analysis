@@ -82,12 +82,15 @@ class CyclicBarrierFilter(FilteringProcessor):
 
 
 class StreamJoiner(MessageProcessor):
-    
     def __init__(self, broker: MessageBroker, joined_topic: str, joiner: Callable[[any, any], any]):
+        super().__init__()
         self.broker = broker
         self.joined_topic = joined_topic
         self.joiner = joiner
-        self.broker.subscribe_to(joined_topic)
+        self.subscribed = False
+
+    def init(self):
+        self.broker.subscribe_to(self.joined_topic)
         self.subscribed = True
 
     def process(self, message: any):

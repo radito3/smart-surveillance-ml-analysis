@@ -6,10 +6,10 @@ import sys
 
 from analysis.activity.multi_person_activity_recon import MultiPersonActivityRecognitionAnalyzer, SubRegionExtractor
 from analysis.human_object_interaction.interaction import HumanObjectInteractionAnalyzer
-from classification.activity.suspicious_activity_classifier import SuspiciousActivityClassifier
-from classification.behavior.graph_lstm import CompositeBehaviouralClassifier, DimensionsSetter
 from analysis.object_detection.object_detector import ObjectDetector
 from analysis.pose_detection.pose_detector import PoseDetector
+from classification.activity.suspicious_activity_classifier import SuspiciousActivityClassifier
+from classification.behavior.graph_lstm import CompositeBehaviouralClassifier, DimensionsSetter
 from messaging.message_broker import MessageBroker
 from messaging.streams_builder import StreamsBuilder
 from messaging.topology import Topology, KafkaStreams
@@ -139,7 +139,7 @@ def main(argv: list[str]):
     broker = MessageBroker()
     topology = build_topology_for(analysis_mode, broker)
     topology.add_source('video_source', VideoSourceProducer(broker, video_url))
-    topology.add_sink('output', NotificationSink(notification_service_url))
+    topology.add_sink('output', NotificationSink(broker, notification_service_url))
 
     signal.signal(signal.SIGINT, lambda signum, frame: broker.interrupt())
     signal.signal(signal.SIGTERM, lambda signum, frame: broker.interrupt())

@@ -100,7 +100,7 @@ def run_pipeline(video_path: str, model: GraphBasedLSTMClassifier) -> float:
         return -1
 
     broker = MessageBroker()
-    sink = TrainingSink()
+    sink = TrainingSink(broker)
     topology = build_training_topology(broker, fps, model)
     # do not bound the fps to not bottleneck the training time
     topology.add_source('video_source', VideoSourceProducer(broker, video_path, False))

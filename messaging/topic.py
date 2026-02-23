@@ -11,7 +11,7 @@ class Topic:
 
         def decrement(self):
             with self.lock:
-                self.ref_count -= 1
+                self.ref_count -= (1 if self.ref_count > 0 else 0)
                 return self.ref_count == 0
 
     def __init__(self, name, queue_size=100):

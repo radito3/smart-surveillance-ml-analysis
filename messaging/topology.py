@@ -41,19 +41,10 @@ class KafkaStreams:
         self.threads.extend([Thread(name=stream.name, target=stream.run) for stream in self.topology.streams])
 
         for topic, consumer in self.topology.sinks.items():
-            self.threads.append(Thread(name=topic+"-consumer-thread", target=self.__consumer_runner, args=(topic, consumer,)))
+            self.threads.append(Thread(name=topic+"-consumer-thread", target=consumer.run, args=(topic,)))
 
         for thread in self.threads:
             thread.start()
-
-    def __consumer_runner(self, topic: str, consumer: Consumer):
-        self.topology.broker.subscribe_to(topic)
-        while self.topology.broker.is_running():
-            message = self.topology.broker.read_from(topic)
-            if message is None:
-                break
-            consumer.process(message)
-        self.topology.broker.unsubscribe_from(topic)
 
     def wait(self):
         for thread in self.threads:
